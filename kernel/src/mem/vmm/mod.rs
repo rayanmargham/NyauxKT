@@ -75,6 +75,7 @@ extern "C" {
 unsafe fn virt<T>(addr: usize) -> *mut T {
     (HDDM_OFFSET.get_response().unwrap().offset() as usize + addr) as *mut T
 }
+
 impl PageMap {
     unsafe fn find_pte_and_allocate(mut pt: usize, va: usize) -> *mut usize {
         let mut shift = 48;
@@ -99,7 +100,7 @@ impl PageMap {
             }
 
             
-            pt = entry.read() & !0xfff;
+            pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
     }
@@ -124,8 +125,8 @@ impl PageMap {
                 } | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits());
             }
 
-            
-            pt = entry.read() & !0xfff;
+            let p = entry.read();
+            pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
     }
@@ -147,7 +148,7 @@ impl PageMap {
             }
 
             println!("EXISTS");
-            pt = entry.read() & !0xfff;
+            pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
     }
