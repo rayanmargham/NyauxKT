@@ -90,16 +90,17 @@ impl PageMap {
             let entry = ptab.add(idx);
 
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
-                entry.write({
-                    let data = PMM.lock().alloc().unwrap();
-                    data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
-                        .write_bytes(0, 4096);
-                    data as usize
-                } | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITETHROUGH.bits());
-                
+                entry.write(
+                    {
+                        let data = PMM.lock().alloc().unwrap();
+                        data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                            .write_bytes(0, 4096);
+                        data as usize
+                    } | VMMFlags::KTPRESENT.bits()
+                        | VMMFlags::KTWRITEALLOWED.bits(),
+                );
             }
 
-            
             pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
@@ -115,14 +116,17 @@ impl PageMap {
                 return ptab.add(idx);
             }
             let entry = ptab.add(idx);
-            
+
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
-                entry.write({
-                    let data = PMM.lock().alloc().unwrap();
-                    data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
-                        .write_bytes(0, 4096);
-                    data as usize
-                } | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits());
+                entry.write(
+                    {
+                        let data = PMM.lock().alloc().unwrap();
+                        data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                            .write_bytes(0, 4096);
+                        data as usize
+                    } | VMMFlags::KTPRESENT.bits()
+                        | VMMFlags::KTWRITEALLOWED.bits(),
+                );
             }
 
             let p = entry.read();
@@ -141,7 +145,6 @@ impl PageMap {
                 return ptab.add(idx);
             }
             let entry = ptab.add(idx);
-            
 
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
                 return entry;
@@ -158,8 +161,9 @@ impl PageMap {
         unsafe { him.write(pt | flags) };
     }
     pub fn map2mb(&self, pt: usize, va: usize, flags: usize) {
-        
-        let him = unsafe { Self::find_pte_and_allocate2mb(self.rootpagetable as usize, va & !0xfffff_usize) };
+        let him = unsafe {
+            Self::find_pte_and_allocate2mb(self.rootpagetable as usize, va & !0xfffff_usize)
+        };
 
         unsafe { him.write((pt & !0xfffff_usize) | flags | VMMFlags::KT2MB.bits()) };
     }
@@ -198,9 +202,9 @@ impl PageMap {
         }
         println!("kernel has been mapped");
         let mut hhdm_pages = 0;
-        for i in (0..0x100000000 as usize).step_by(2000000) {
-            assert_eq!(i % 2000000, 0);
-            
+        for i in (0..0x100000000 as usize).step_by(2097152) {
+            assert_eq!(i % 2097152, 0);
+
             q.map2mb(
                 i as usize,
                 HDDM_OFFSET.get_response().unwrap().offset() as usize + i,
@@ -219,33 +223,33 @@ impl PageMap {
                 | EntryType::BOOTLOADER_RECLAIMABLE
                 | EntryType::KERNEL_AND_MODULES
                 | EntryType::RESERVED => {
-                    let disalign = i.base as usize % 2000000;
+                    let disalign = i.base as usize % 2097152;
 
-                    i.base = align_down(i.base as usize, 2000000) as u64;
-                    let page_amount = align_up(i.length as usize - disalign, 2000000) / 2000000;
+                    i.base = align_down(i.base as usize, 2097152) as u64;
+                    let page_amount = align_up(i.length as usize - disalign, 2097152) / 2097152;
                     println!("amount: {}", page_amount);
                     for e in 0..page_amount {
                         q.map2mb(
-                            i.base as usize + (e * 2000000) as usize,
+                            i.base as usize + (e * 2097152) as usize,
                             HDDM_OFFSET.get_response().unwrap().offset() as usize
                                 + i.base as usize
-                                + (e * 2000000) as usize,
+                                + (e * 2097152) as usize,
                             VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
                         )
                     }
                     hhdm_pages += page_amount;
                 }
                 EntryType::FRAMEBUFFER => {
-                    let disalign = i.base as usize % 2000000;
-                    i.base = align_down(i.base as usize, 2000000) as u64;
-                    let page_amount = align_up(i.length as usize - disalign, 2000000) / 2000000;
+                    let disalign = i.base as usize % 2097152;
+                    i.base = align_down(i.base as usize, 2097152) as u64;
+                    let page_amount = align_up(i.length as usize - disalign, 2097152) / 2097152;
                     println!("amount: {}", page_amount);
                     for e in 0..page_amount {
                         q.map2mb(
-                            i.base as usize + (e * 2000000) as usize,
+                            i.base as usize + (e * 2097152) as usize,
                             HDDM_OFFSET.get_response().unwrap().offset() as usize
                                 + i.base as usize
-                                + (e * 2000000) as usize,
+                                + (e * 2097152) as usize,
                             // enable wc for sped
                             VMMFlags::KTPRESENT.bits()
                                 | VMMFlags::KTWRITEALLOWED.bits()
