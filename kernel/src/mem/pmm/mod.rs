@@ -31,7 +31,7 @@ struct Cache {
 pub struct KmallocManager {
     array: [Cache; 7],
 }
-pub static mut RAMUSAGE: u64 = 0;
+pub static RAMUSAGE: Mutex<u64> = Mutex::new(0);
 impl KmallocManager {
     fn init() -> Self {
         println!("Creating Objects...");
@@ -70,7 +70,7 @@ impl KmallocManager {
             let ok = rightCache.unwrap();
             (*new).next = (*h).freelist;
             (*h).freelist = Some(new);
-            RAMUSAGE -= ok.size as u64;
+            *RAMUSAGE.lock() -= ok.size as u64;
             let mut prev = None;
             let mut shit = ok.slabs;
             while shit != None {
@@ -164,10 +164,10 @@ impl PhysicalAllocator {
             match unsafe { (*w).next } {
                 Some(e) => {
                     self.head = Some(e);
-                    unsafe { RAMUSAGE += 4096 as u64 };
-                    return Ok((unsafe {
+                    *RAMUSAGE.lock() += 4096 as u64;
+                    return Ok(unsafe {
                         (w as *mut u8).sub(HDDM_OFFSET.get_response().unwrap().offset() as usize)
-                    }));
+                    });
                 }
                 None => {
                     break 'outer;
@@ -186,7 +186,8 @@ impl PhysicalAllocator {
             (*node).next = self.head;
             self.head = Some(node);
         }
-        unsafe { RAMUSAGE -= 4096 as u64 };
+        *RAMUSAGE.lock() -= 4096 as u64;
+
         Ok(())
     }
 }
@@ -243,7 +244,7 @@ impl Cache {
                     let new = (*h.unwrap()).freelist.unwrap();
 
                     (*h.unwrap()).freelist = (*new).next;
-                    RAMUSAGE += self.size as u64;
+                    *RAMUSAGE.lock() += self.size as u64;
                     return Some(new as *mut u8);
                 } else {
                     if (*h.unwrap()).next_slab.is_none() {
@@ -259,7 +260,7 @@ impl Cache {
             (*h.unwrap()).next_slab = Some(new);
             let o = (*new).freelist.unwrap();
             (*new).freelist = (*o).next;
-            RAMUSAGE += self.size as u64;
+            *RAMUSAGE.lock() += self.size as u64;
             return Some(o as *mut u8);
         }
     }

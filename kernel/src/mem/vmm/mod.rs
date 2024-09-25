@@ -1,3 +1,5 @@
+use core::fmt;
+
 use bitflags::{bitflags, Flags};
 use limine::{memory_map::EntryType, request::KernelAddressRequest};
 use owo_colors::OwoColorize;
@@ -9,6 +11,7 @@ use crate::{hcf, println};
 
 use super::pmm::{HDDM_OFFSET, MEMMAP, PMM};
 bitflags! {
+    #[derive(Debug)]
     pub struct VMMFlags: usize
     {
         const KTEXECUTABLEDISABLE = 1 << 63;
@@ -23,16 +26,25 @@ bitflags! {
 
     }
 }
-#[derive(Debug)]
+use alloc::vec::Vec;
+
 pub struct VMMRegion {
     base: usize,
     length: usize,
-    flags: usize,
-    next: Option<Box<VMMRegion>>,
+    flags: VMMFlags,
+}
+impl fmt::Debug for VMMRegion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "VMMRegion {{\n    base: {:#x}\n    length: {}\n    flags: {:?}\n}}",
+            self.base, self.length, self.flags
+        )
+    }
 }
 #[derive(Debug)]
 pub struct PageMap {
-    head: Option<Box<VMMRegion>>,
+    head: Vec<VMMRegion>,
     rootpagetable: *mut usize,
 }
 #[macro_export]
@@ -150,7 +162,6 @@ impl PageMap {
                 return entry;
             }
 
-            println!("EXISTS");
             pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
@@ -169,7 +180,9 @@ impl PageMap {
     }
     pub fn unmap(&self, va: usize) {
         let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
+
         unsafe { him.write(0) };
+        println!("{:#x}", unsafe { him.read() });
         unsafe {
             core::arch::asm!("invlpg [{x}]", x = in(reg) va, options(nostack, preserves_flags))
         };
@@ -180,7 +193,7 @@ impl PageMap {
     }
     pub fn new_inital() {
         let mut q = PageMap {
-            head: None,
+            head: Vec::new(),
             rootpagetable: {
                 let data = PMM.lock().alloc().unwrap();
                 unsafe {
@@ -227,7 +240,7 @@ impl PageMap {
 
                     i.base = align_down(i.base as usize, 2097152) as u64;
                     let page_amount = align_up(i.length as usize - disalign, 2097152) / 2097152;
-                    println!("amount: {}", page_amount);
+
                     for e in 0..page_amount {
                         q.map2mb(
                             i.base as usize + (e * 2097152) as usize,
@@ -243,7 +256,7 @@ impl PageMap {
                     let disalign = i.base as usize % 2097152;
                     i.base = align_down(i.base as usize, 2097152) as u64;
                     let page_amount = align_up(i.length as usize - disalign, 2097152) / 2097152;
-                    println!("amount: {}", page_amount);
+
                     for e in 0..page_amount {
                         q.map2mb(
                             i.base as usize + (e * 2097152) as usize,
@@ -265,7 +278,20 @@ impl PageMap {
         println!("{:#x}", q.rootpagetable as usize);
         q.switch_to();
         q.region_setup(hhdm_pages);
+        let o = q
+            .vmm_region_alloc(12050, VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED)
+            .unwrap();
+        unsafe {
+            o.write(1);
+            if o.read() == 1 {
+                println!("IT FUCKING WORKED");
+            }
+        }
+        q.vmm_region_dealloc(o as usize);
+        unsafe { o.write(2) };
+        // q.region_walk();
         *KERMAP.lock() = Some(q);
+
         println!("vmm inited");
     }
     pub fn switch_to(&self) {
@@ -276,23 +302,109 @@ impl PageMap {
             )
         }
     }
+    pub fn region_walk(&self) {
+        for i in self.head.iter() {
+            println!("{:#?}", i);
+        }
+    }
     pub fn region_setup(&mut self, pages_in_hhdm: usize) {
-        println!("got {pages_in_hhdm}");
-        let kernel_range = Some(Box::new(VMMRegion {
+        // println!("got {pages_in_hhdm}");
+        // let kernel_range = Some(Box::new(VMMRegion {
+        //     base: ADDR.get_response().unwrap().virtual_base() as usize,
+        //     length: unsafe { align_up(&THE_REAL as *const _ as usize, 4096) },
+        //     flags: VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
+        //     next: None,
+        // }));
+        // let mut hhdm_range = Some(Box::new(VMMRegion {
+        //     base: HDDM_OFFSET.get_response().unwrap().offset() as usize,
+        //     length: align_up(pages_in_hhdm * 0x1000, 4096),
+        //     flags: VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
+        //     next: None,
+        // }));
+        // println!("Kernel Region: {:#?}", kernel_range);
+        // println!("HHDM Region: {:#?}", hhdm_range);
+        // hhdm_range.as_mut().unwrap().next = kernel_range;
+        // self.head = hhdm_range;
+        let ITSHIM = VMMRegion {
             base: ADDR.get_response().unwrap().virtual_base() as usize,
             length: unsafe { align_up(&THE_REAL as *const _ as usize, 4096) },
-            flags: VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
-            next: None,
-        }));
-        let mut hhdm_range = Some(Box::new(VMMRegion {
+            flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+        };
+        let HHDM = VMMRegion {
             base: HDDM_OFFSET.get_response().unwrap().offset() as usize,
             length: align_up(pages_in_hhdm * 0x1000, 4096),
-            flags: VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
-            next: None,
-        }));
-        println!("Kernel Region: {:#?}", kernel_range);
-        println!("HHDM Region: {:#?}", hhdm_range);
-        hhdm_range.as_mut().unwrap().next = kernel_range;
-        self.head = hhdm_range;
+            flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+        };
+
+        self.head.push(HHDM);
+        self.head.push(ITSHIM);
+    }
+    pub fn vmm_region_alloc(&mut self, size: usize, flags: VMMFlags) -> Option<*mut u8> {
+        let mut store = None;
+        for (idx, i) in self.head.iter_mut().enumerate() {
+            if idx == 0 {
+                store = Some(i);
+
+                continue;
+            }
+            let temp = store.as_mut().unwrap();
+            if i.base - temp.base + temp.length >= align_up(size as usize, 4096) as usize + 0x1000 {
+                let new_guy = VMMRegion {
+                    base: temp.base + temp.length,
+                    length: align_up(size, 4096),
+                    flags,
+                };
+
+                let amou = align_up(size as usize, 4096) / 4096;
+                for i in 0..amou {
+                    let data = {
+                        let o = PMM.lock().alloc().unwrap();
+                        unsafe {
+                            o.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                                .write_bytes(0, 4096);
+                        }
+                        o
+                    };
+                    self.map(
+                        data as usize,
+                        new_guy.base + (i * 0x1000),
+                        new_guy.flags.bits(),
+                    );
+                }
+                let n = new_guy.base;
+                self.head.insert(idx, new_guy);
+                return Some(n as *mut u8);
+            } else {
+                store = Some(i);
+                continue;
+            }
+            // |    |              |    |
+            // |    |  FREE SPACE  |    |
+            // |____|. . . . . . . |____|
+        }
+        panic!("out of vmm region space lmao");
+    }
+    pub fn vmm_region_dealloc(&mut self, addr: usize) {
+        let mut idxx = -1;
+        for (idx, i) in self.head.iter().enumerate() {
+            if i.base == addr {
+                let num_of_pages = i.length / 4096;
+                for f in 0..num_of_pages {
+                    let phys = self.virt_to_phys(i.base + (f * 0x1000)) as *mut u8;
+                    self.unmap(i.base + (f * 0x1000));
+                    PMM.lock()
+                        .dealloc(unsafe {
+                            phys.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                        })
+                        .unwrap();
+                }
+                idxx = idx as i32;
+            }
+        }
+        if idxx == -1 {
+            println!("WTF");
+            return;
+        }
+        self.head.remove(idxx as usize);
     }
 }
