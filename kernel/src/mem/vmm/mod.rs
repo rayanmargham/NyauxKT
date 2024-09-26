@@ -202,6 +202,7 @@ impl PageMap {
         let him = unsafe { Self::find_pte_and_allocate(self.rootpagetable as usize, va) };
 
         unsafe { him.write(pt | flags) };
+        unsafe { println!("his data: {:#x}", him.read()) };
     }
     pub fn map2mb(&self, pt: usize, va: usize, flags: usize) {
         let him = unsafe {
@@ -213,6 +214,7 @@ impl PageMap {
     pub fn unmap(&self, va: usize) {
         let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
         if let Some(h) = him {
+            unsafe { println!("her data: {:#x}", h.read()) }
             unsafe { h.write(0) };
 
             unsafe {
