@@ -138,6 +138,7 @@ impl PageMap {
                 );
                 pt = new_pt as usize;
             } else if entry.read() & VMMFlags::KT2MB.bits() == 1 && i == 2 {
+                let data = entry.read();
                 let data = PMM.lock().alloc().unwrap();
 
                 let ptt =
@@ -213,10 +214,12 @@ impl PageMap {
         let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
         if let Some(h) = him {
             unsafe { h.write(0) };
-            println!("{:#x}", unsafe { h.read() });
+
             unsafe {
                 core::arch::asm!("invlpg [{x}]", x = in(reg) va, options(nostack, preserves_flags))
             };
+        } else {
+            println!("not found");
         }
     }
     pub fn virt_to_phys(&self, va: usize) -> Option<usize> {
