@@ -236,9 +236,9 @@ impl PageMap {
                 | EntryType::BOOTLOADER_RECLAIMABLE
                 | EntryType::KERNEL_AND_MODULES
                 | EntryType::RESERVED => {
-                    let disalign = i.base as usize % 2097152;
+                    let disalign = i.base as usize % 4096;
 
-                    i.base = align_down(i.base as usize, 2097152) as u64;
+                    i.base = align_down(i.base as usize, 4096) as u64;
                     let page_amount = align_up(i.length as usize - disalign, 2097152) / 2097152;
 
                     for e in 0..page_amount {
