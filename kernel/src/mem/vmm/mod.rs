@@ -102,18 +102,17 @@ impl PageMap {
             let entry = ptab.add(idx);
 
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
+                let new_pt = PMM.lock().alloc().unwrap();
+                new_pt
+                    .add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                    .write_bytes(0, 4096);
                 entry.write(
-                    {
-                        let data = PMM.lock().alloc().unwrap();
-                        data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
-                            .write_bytes(0, 4096);
-                        data as usize
-                    } | VMMFlags::KTPRESENT.bits()
-                        | VMMFlags::KTWRITEALLOWED.bits(),
+                    new_pt as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
                 );
+                pt = new_pt as usize;
+            } else {
+                pt = entry.read() & 0x000f_ffff_ffff_f000;
             }
-
-            pt = entry.read() & 0x000f_ffff_ffff_f000;
         }
         unreachable!()
     }
@@ -130,23 +129,38 @@ impl PageMap {
             let entry = ptab.add(idx);
 
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
+                let new_pt = PMM.lock().alloc().unwrap();
+                new_pt
+                    .add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
+                    .write_bytes(0, 4096);
                 entry.write(
-                    {
-                        let data = PMM.lock().alloc().unwrap();
-                        data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize)
-                            .write_bytes(0, 4096);
-                        data as usize
-                    } | VMMFlags::KTPRESENT.bits()
-                        | VMMFlags::KTWRITEALLOWED.bits(),
+                    new_pt as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
                 );
-            }
+                pt = new_pt as usize;
+            } else if entry.read() & VMMFlags::KT2MB.bits() == 1 && i == 2 {
+                let data = PMM.lock().alloc().unwrap();
 
-            let p = entry.read();
-            pt = entry.read() & 0x000f_ffff_ffff_f000;
+                let ptt =
+                    data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize) as *mut usize;
+                let old_phys = entry.read() & 0x000f_ffff_ffff_f000;
+                let old_flags = entry.read() & !0x000f_ffff_ffff_f000;
+
+                for i in 0..512 {
+                    unsafe {
+                        *ptt.add(i) = old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits())
+                    }
+                }
+                entry.write(
+                    data as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
+                );
+                pt = data as usize;
+            } else {
+                pt = entry.read() & 0x000f_ffff_ffff_f000;
+            }
         }
         unreachable!()
     }
-    unsafe fn find_pte(mut pt: usize, va: usize) -> *mut usize {
+    unsafe fn find_pte(mut pt: usize, va: usize) -> Option<*mut usize> {
         let mut shift = 48;
         for i in 0..4 {
             shift -= 9;
@@ -154,15 +168,32 @@ impl PageMap {
             let ptab: *mut usize = virt(pt);
 
             if i == 3 {
-                return ptab.add(idx);
+                return Some(ptab.add(idx));
             }
             let entry = ptab.add(idx);
 
             if entry.read() & VMMFlags::KTPRESENT.bits() == 0 {
-                return entry;
-            }
+                return None;
+            } else if entry.read() & VMMFlags::KT2MB.bits() == 1 && i == 2 {
+                let data = PMM.lock().alloc().unwrap();
 
-            pt = entry.read() & 0x000f_ffff_ffff_f000;
+                let ptt =
+                    data.add(HDDM_OFFSET.get_response().unwrap().offset() as usize) as *mut usize;
+                let old_phys = entry.read() & 0x000f_ffff_ffff_f000;
+                let old_flags = entry.read() & !0x000f_ffff_ffff_f000;
+
+                for i in 0..512 {
+                    unsafe {
+                        *ptt.add(i) = old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits())
+                    }
+                }
+                entry.write(
+                    data as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits(),
+                );
+                pt = data as usize;
+            } else {
+                pt = entry.read() & 0x000f_ffff_ffff_f000;
+            }
         }
         unreachable!()
     }
@@ -173,23 +204,28 @@ impl PageMap {
     }
     pub fn map2mb(&self, pt: usize, va: usize, flags: usize) {
         let him = unsafe {
-            Self::find_pte_and_allocate2mb(self.rootpagetable as usize, va & !0xfffff_usize)
+            Self::find_pte_and_allocate2mb(self.rootpagetable as usize, va & !0x1fffff_usize)
         };
 
-        unsafe { him.write((pt & !0xfffff_usize) | flags | VMMFlags::KT2MB.bits()) };
+        unsafe { him.write((pt & !0x1fffff_usize) | flags | VMMFlags::KT2MB.bits()) };
     }
     pub fn unmap(&self, va: usize) {
         let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
-
-        unsafe { him.write(0) };
-        println!("{:#x}", unsafe { him.read() });
-        unsafe {
-            core::arch::asm!("invlpg [{x}]", x = in(reg) va, options(nostack, preserves_flags))
-        };
+        if let Some(h) = him {
+            unsafe { h.write(0) };
+            println!("{:#x}", unsafe { h.read() });
+            unsafe {
+                core::arch::asm!("invlpg [{x}]", x = in(reg) va, options(nostack, preserves_flags))
+            };
+        }
     }
-    pub fn virt_to_phys(&self, va: usize) -> usize {
+    pub fn virt_to_phys(&self, va: usize) -> Option<usize> {
         let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
-        return unsafe { him.read() as usize };
+        if let Some(h) = him {
+            return unsafe { Some(h.read() as usize) };
+        } else {
+            None
+        }
     }
     pub fn new_inital() {
         let mut q = PageMap {
@@ -390,7 +426,7 @@ impl PageMap {
             if i.base == addr {
                 let num_of_pages = i.length / 4096;
                 for f in 0..num_of_pages {
-                    let phys = self.virt_to_phys(i.base + (f * 0x1000)) as *mut u8;
+                    let phys = self.virt_to_phys(i.base + (f * 0x1000)).unwrap() as *mut u8;
                     self.unmap(i.base + (f * 0x1000));
                     PMM.lock()
                         .dealloc(unsafe {
