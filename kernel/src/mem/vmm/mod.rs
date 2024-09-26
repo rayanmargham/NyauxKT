@@ -330,7 +330,8 @@ impl PageMap {
         }
         q.vmm_region_dealloc(o as usize);
         unsafe { o.write(2) };
-        // q.region_walk();
+
+        q.region_walk();
         *KERMAP.lock() = Some(q);
 
         println!("vmm inited");
@@ -431,6 +432,7 @@ impl PageMap {
             if i.base == addr {
                 let num_of_pages = i.length / 4096;
                 for f in 0..num_of_pages {
+                    println!("deaellocing");
                     let phys = self.virt_to_phys(i.base + (f * 0x1000)).unwrap() as *mut u8;
                     self.unmap(i.base + (f * 0x1000));
                     PMM.lock()
