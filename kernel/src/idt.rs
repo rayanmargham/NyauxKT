@@ -26,7 +26,7 @@ impl GateDescriptor {
     }
 }
 extern "C" fn exception_handler(registers: u64) {
-    let got_registers = unsafe { *(registers as *mut Registers) };
+    let got_registers = unsafe { &*(registers as *mut Registers) };
     panic!(
         "crash vec {:#x} \nwith register rip at {:#x}\nerror code {:#x} \nrflags {:#x} idiot",
         got_registers.int, got_registers.rip, got_registers.error_code, got_registers.rflags

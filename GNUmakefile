@@ -23,7 +23,8 @@ all-hdd: $(IMAGE_NAME).hdd
 run: run-$(KARCH)
 .PHONY: run-kvm
 run-kvm: run-$(KARCH)-kvm
-
+.phony: run-kvm-gdb
+run-kvm-gdb: run-$(KARCH)-kvmdebug
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)
 
@@ -42,6 +43,17 @@ run-x86_64-kvm: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NA
 		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
 		-cdrom $(IMAGE_NAME).iso \
 		--enable-kvm \
+		-cpu host \
+		$(QEMUFLAGS)
+run-x86_64-kvmdebug: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+		-M q35 \
+		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+		-cdrom $(IMAGE_NAME).iso \
+		--enable-kvm \
+		-S \
+		-s \
 		-cpu host \
 		$(QEMUFLAGS)
 .PHONY: run-hdd-x86_64

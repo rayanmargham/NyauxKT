@@ -12,7 +12,6 @@
     unused_imports,
     unused_macros
 )]
-pub mod fb;
 pub mod gdt;
 pub mod idt;
 pub mod mem;

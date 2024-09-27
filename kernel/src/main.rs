@@ -9,13 +9,10 @@ use limine::BaseRevision;
 use NyauxKT::gdt::init_gdt;
 use NyauxKT::idt::InterruptManager;
 
-use NyauxKT::mem::pmm::PhysicalAllocator;
-use NyauxKT::mem::vmm::PageMap;
+use owo_colors::OwoColorize;
+use NyauxKT::mem::pmm::{pmm_alloc, pmm_dealloc, pmm_init, FREEPAGES};
 use NyauxKT::println;
 use NyauxKT::term::TERMGBL;
-extern crate alloc;
-use alloc::vec::Vec;
-use owo_colors::OwoColorize;
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 /// Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -48,19 +45,17 @@ unsafe extern "C" fn kmain() -> ! {
 
             InterruptManager::start_idt();
             TERMGBL.lock().init(&framebuffer);
-            println!("hello world");
-            PhysicalAllocator::new().unwrap();
-            PageMap::new_inital();
-            let mut test: Vec<i32> = Vec::new();
-            test.push(5);
-            test.push(4);
-            test.push(3);
-            test.push(2);
-            test.push(1);
-            test.push(0);
-            assert_eq!([5, 4, 3, 2, 1, 0], *test);
-            drop(test);
-            println!("{}", "Yippie".green())
+            println!("Booting Kernel...");
+            pmm_init();
+            println!("it worked!");
+            let funny = &mut *(pmm_alloc().unwrap() as *mut usize);
+            *funny = 5;
+            println!(
+                "kmain(): Free Pages is now: {}",
+                FREEPAGES.load(core::sync::atomic::Ordering::SeqCst)
+            );
+            println!("funny is !!! {}", *funny);
+            pmm_dealloc(funny as *mut usize as usize);
         }
     }
 
