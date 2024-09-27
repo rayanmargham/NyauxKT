@@ -32,7 +32,7 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 #[used]
 #[link_section = ".requests_end_marker"]
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
-
+extern crate alloc;
 #[no_mangle]
 unsafe extern "C" fn kmain() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
@@ -50,12 +50,20 @@ unsafe extern "C" fn kmain() -> ! {
             println!("it worked!");
             let funny = &mut *(pmm_alloc().unwrap() as *mut usize);
             *funny = 5;
-            println!(
-                "kmain(): Free Pages is now: {}",
-                FREEPAGES.load(core::sync::atomic::Ordering::SeqCst)
-            );
+
             println!("funny is !!! {}", *funny);
             pmm_dealloc(funny as *mut usize as usize);
+            println!("trying out vectors");
+            let mut funny = alloc::vec::Vec::new();
+            funny.push(1);
+            funny.push(2);
+            funny.push(3);
+            funny.push(4);
+            funny.push(5);
+            assert_eq!([1, 2, 3, 4, 5], *funny);
+            println!("IT WORKED");
+            println!("{:#?}", funny);
+            drop(funny);
         }
     }
 
