@@ -50,9 +50,9 @@ impl<'a> Terminal<'a> {
                 8,
                 16,
                 1,
-                1,
-                1,
-                10,
+                2,
+                2,
+                20,
             );
             self.ctx = Some(ctx);
         }
@@ -95,4 +95,7 @@ pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
 
     TERMGBL.lock().write_fmt(args).unwrap();
+}
+pub fn clear_screenterm(col: u32) {
+    TERMGBL.lock().clear_screen(col);
 }
