@@ -11,6 +11,7 @@ use NyauxKT::idt::InterruptManager;
 
 use owo_colors::OwoColorize;
 use NyauxKT::mem::pmm::{pmm_alloc, pmm_dealloc, pmm_init, FREEPAGES};
+use NyauxKT::mem::vmm;
 use NyauxKT::println;
 use NyauxKT::term::{clear_screenterm, TERMGBL};
 /// Sets the base revision to the latest revision supported by the crate.
@@ -48,11 +49,7 @@ unsafe extern "C" fn kmain() -> ! {
             println!("Booting Kernel...");
             pmm_init();
             println!("it worked!");
-            let funny = &mut *(pmm_alloc().unwrap() as *mut usize);
-            *funny = 5;
 
-            println!("funny is !!! {}", *funny);
-            pmm_dealloc(funny as *mut usize as usize);
             println!("trying out vectors");
             let mut funny = alloc::vec::Vec::new();
             funny.push(1);
@@ -65,6 +62,7 @@ unsafe extern "C" fn kmain() -> ! {
             println!("{:#?}", funny);
 
             drop(funny);
+            vmm::PageMap::new_inital();
         }
     }
 

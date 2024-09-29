@@ -2,10 +2,11 @@ use limine::{
     request::{self, HhdmRequest, MemoryMapRequest},
     response::MemoryMapResponse,
 };
+use vmm::{VMMFlags, KERMAP};
 pub mod pmm;
 #[used]
 #[link_section = ".requests"]
-pub static MEMMAP: limine::request::MemoryMapRequest = MemoryMapRequest::new();
+pub static mut MEMMAP: limine::request::MemoryMapRequest = MemoryMapRequest::new();
 #[used]
 #[link_section = ".requests"]
 pub static HHDM: limine::request::HhdmRequest = HhdmRequest::new();
@@ -32,9 +33,15 @@ unsafe impl GlobalAlloc for MemoryManagement {
                 q.write_bytes(0, layout.size());
                 return q;
             }
-            None => {
-                panic!("unimplmented the VMM");
-            }
+            None => KERMAP
+                .lock()
+                .as_mut()
+                .unwrap()
+                .vmm_region_alloc(
+                    layout.size(),
+                    VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+                )
+                .unwrap(),
         }
     }
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
@@ -44,16 +51,27 @@ unsafe impl GlobalAlloc for MemoryManagement {
                 q.write_bytes(0, layout.size());
                 return q;
             }
-            None => {
-                panic!("no vmm");
-            }
+            None => KERMAP
+                .lock()
+                .as_mut()
+                .unwrap()
+                .vmm_region_alloc(
+                    layout.size(),
+                    VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+                )
+                .unwrap(),
         }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         if layout.size() > 4096 {
-            panic!("no vmm")
+            KERMAP
+                .lock()
+                .as_mut()
+                .unwrap()
+                .vmm_region_dealloc(ptr as usize);
         } else {
             return cool.lock().as_mut().unwrap().free(ptr as usize);
         }
     }
 }
+pub mod vmm;

@@ -52,8 +52,8 @@ run-x86_64-kvmdebug: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMA
 		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
 		-cdrom $(IMAGE_NAME).iso \
 		--enable-kvm \
-		-S \
 		-s \
+		-S \
 		-cpu host \
 		$(QEMUFLAGS)
 .PHONY: run-hdd-x86_64

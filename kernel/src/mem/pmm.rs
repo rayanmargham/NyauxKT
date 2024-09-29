@@ -84,7 +84,7 @@ pub static cool: Mutex<Option<kmallocmanager>> = Mutex::new(None);
 pub static FREEPAGES: AtomicUsize = AtomicUsize::new(0);
 pub fn pmm_init() {
     let mut head = HEAD.lock();
-    let o = MEMMAP.get_response().unwrap().entries();
+    let o = unsafe { MEMMAP.get_response().unwrap().entries() };
     let mut last = None;
     let jk = HHDM.get_response().unwrap().offset();
     for entry in o
@@ -114,16 +114,24 @@ pub fn pmm_alloc() -> Option<usize> {
     let mut mutd = HEAD.lock();
     let head = mutd.as_mut()?;
     let next_node = head.next.take();
-    let it = *head as *mut KTNode as usize;
+    let it = unsafe {
+        (*head as *mut KTNode)
+            .sub(HHDM.get_response().unwrap().offset() as usize / size_of::<KTNode>())
+            as usize
+    };
     FREEPAGES.fetch_sub(1, Ordering::SeqCst);
     *mutd = next_node;
+
     Some(it)
 }
 pub fn pmm_dealloc(addr: usize) -> Option<()> {
     let mut mutd = HEAD.lock();
     let head = mutd.as_mut()?;
     let node = head.next.take();
-    let created = unsafe { &mut *(addr as *mut KTNode) };
+    let created = unsafe {
+        &mut *((addr as *mut KTNode)
+            .add(HHDM.get_response().unwrap().offset() as usize / size_of::<KTNode>()))
+    };
     created.next = node;
     *mutd = Some(created);
     FREEPAGES.fetch_add(1, Ordering::SeqCst);
@@ -146,18 +154,24 @@ pub struct kmallocmgr {
 }
 impl slab_header {
     fn init(size: usize) -> &'static mut Self {
-        let data = pmm_alloc().unwrap() as *mut u8;
-
+        println!("h");
+        let data = unsafe { (pmm_alloc().unwrap() as *mut u8) };
+        println!("h, {:#x}", data as usize);
         unsafe {
-            data.write_bytes(0, 4096);
+            data.add(HHDM.get_response().unwrap().offset() as usize)
+                .write_bytes(0, 4096);
         }
-
-        let h = unsafe { &mut (*(data as *mut slab_header)) };
+        println!("h");
+        let h = unsafe {
+            &mut (*(data.add(HHDM.get_response().unwrap().offset() as usize) as *mut slab_header))
+        };
         h.size = size;
 
         let obj_amount = (4096 - size_of::<slab_header>()) / size;
-        let mut start =
-            unsafe { &mut *((data as usize + size_of::<slab_header>()) as *mut KTNode) };
+        let mut start = unsafe {
+            &mut *((data.add(HHDM.get_response().unwrap().offset() as usize) as usize
+                + size_of::<slab_header>()) as *mut KTNode)
+        };
         let heraddr = (start as *mut KTNode) as usize;
 
         let mut prev = &mut start;
