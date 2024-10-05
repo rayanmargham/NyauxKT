@@ -11,7 +11,9 @@
     unused_macro_rules,
     unused_imports,
     unused_macros
+    
 )]
+#![feature(strict_provenance)]
 pub mod gdt;
 pub mod idt;
 pub mod mem;

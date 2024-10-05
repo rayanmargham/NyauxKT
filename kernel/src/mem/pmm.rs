@@ -17,36 +17,50 @@ pub struct um {
     next: Option<NonNull<um>>
 }
 pub struct kmallocmanager {
-    array: [cache; /*7*/6],
+    array: [cache; 7],
 }
 impl kmallocmanager {
-    // fn init() -> Self {
-    //     println!("creating that shit");
-    //     // let cache1 = cache::init(16);
-    //     let cache2 = cache::init(32);
-    //     let cache3 = cache::init(64);
-    //     let cache4 = cache::init(128);
-    //     let cache5 = cache::init(256);
-    //     let cache6 = cache::init(512);
-    //     let cache7 = cache::init(1024);
+    fn init() -> Self {
+        println!("creating that shit");
+        let cache1 = cache::init(16);
+        let cache2 = cache::init(32);
+        let cache3 = cache::init(64);
+        let cache4 = cache::init(128);
+        let cache5 = cache::init(256);
+        let cache6 = cache::init(512);
+        let cache7 = cache::init(1024);
 
-    //     Self {
-    //         array: [/*cache1, */cache2, cache3, cache4, cache5, cache6, cache7],
-    //     }
-    // }
-    // pub fn alloc(&mut self, size: usize) -> Option<usize> {
-    //     let a = size.next_power_of_two();
-    //     for i in self.array.iter_mut() {
-    //         if i.size >= a {
-    //             return i.slab_allocsearch();
-    //         }
-    //     }
-    //     None
-    // }
-    // pub fn free(&mut self, addr: usize) {
-    //     if addr == 0 {
-    //         return;
-    //     }
+        Self {
+            array: [cache1, cache2, cache3, cache4, cache5, cache6, cache7],
+        }
+    }
+    pub fn alloc(&mut self, size: usize) -> Option<*mut u8> {
+        let a = size.next_power_of_two();
+        for i in self.array.iter_mut() {
+            if i.size >= a {
+                return i.slab_allocsearch();
+            }
+        }
+        None
+    }
+    pub fn free(&mut self, addr: *mut u8) {
+        if addr == core::ptr::null_mut() {
+            return;
+        }
+        
+        let header = NonNull::new(addr.map_addr(|a| a & !0xFFF).cast::<slab_header>()).unwrap();
+        let mut rightcache = None;
+        'outer: for i in self.array.iter_mut() {
+            if i.size == unsafe {(*header.as_ptr()).obj_size} {
+                rightcache = Some(i);
+                break 'outer;
+            }
+        }
+        if rightcache.is_none() {
+            return;
+        }
+        
+    }
     //     let header = unsafe { &mut *((addr & !0xFFF) as *mut slab_header) };
     //     let mut rightcache = None;
     //     'outer: for i in self.array.iter_mut() {
@@ -157,6 +171,23 @@ struct cache {
     size: usize,
     slabs: Option<NonNull<slab_header>>,
 }
+struct holder_type(Option<NonNull<um>>);
+impl Iterator for holder_type {
+    type Item = NonNull<um>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut start = self.0;
+        unsafe {
+            if start.is_none() {
+                return None;
+            }
+            if (*start.unwrap().as_ptr()).next.is_some() {
+                start = (*start.unwrap().as_ptr()).next;
+            }
+            return Some(start.unwrap())
+        }
+    }
+    
+}
 #[derive(Debug)]
 #[repr(C)]
 struct slab_header {
@@ -183,12 +214,13 @@ impl slab_header {
         }
         let obj_amount = (4096 - size_of::<slab_header>()) / size;
         let start = unsafe {it.add(1).cast::<um>()};
-        let prev = start;
+        let mut prev = start;
         for i in 1..obj_amount {
             unsafe {
                 let new = start.byte_add(i * size);
                 (*new.as_ptr()).next = None;
-                (*prev.as_ptr()).next = Some(NonNull::new(start.as_ptr()).unwrap());
+                (*prev.as_ptr()).next = Some(new);
+                prev = new;
             }
             
         }
@@ -245,8 +277,24 @@ impl cache {
             slabs: Some(slab_header::init(size)),
         }
     }
-    fn slab_allocsearch(&mut self) -> Option<usize> {
-        todo!()
+    fn slab_allocsearch(&mut self) -> Option<*mut u8> {
+        let h = &mut self.slabs;
+        for i in h.iter_mut() {
+            
+            unsafe {
+                if let Some(friend) = (*i.as_ptr()).freelist {
+                    (*i.as_ptr()).freelist = (*friend.as_ptr()).next;
+                    
+                    return Some(friend.as_ptr().cast::<u8>());
+                }
+            }
+        }
+        let new = slab_header::init(self.size);
+        
+        unsafe {
+            (*h.iter_mut().last().unwrap().as_ptr()).next_slab = Some(new);
+        }
+        self.slab_allocsearch()
         // let mut h = &mut self.slabs;
         // 'outer: loop {
         //     println!("{:?}", h);

@@ -52,12 +52,20 @@ unsafe extern "C" fn kmain() -> ! {
 
             println!("trying out vectors");
             let mut funny = alloc::vec::Vec::new();
+            println!("is fine");
             funny.push(1);
+            
             funny.push(2);
+            println!("failed");
             funny.push(3);
+            println!("failed");
             funny.push(4);
+            println!("failed");
             funny.push(5);
+            println!("failed");
             assert_eq!([1, 2, 3, 4, 5], *funny);
+            println!("failed");
+            
             println!("IT WORKED");
             println!("{:#?}", funny);
 

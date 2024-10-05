@@ -31,9 +31,10 @@ unsafe impl GlobalAlloc for MemoryManagement {
             Some(q) => {
                 let q = q as *mut u8;
                 q.write_bytes(0, layout.size());
+                println!("giving {:#x}, size: {}", q.addr(), layout.size());
                 return q;
             }
-            None => KERMAP
+            None => {let x = KERMAP
                 .lock()
                 .as_mut()
                 .unwrap()
@@ -41,7 +42,9 @@ unsafe impl GlobalAlloc for MemoryManagement {
                     layout.size(),
                     VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
                 )
-                .unwrap(),
+                .unwrap();
+            println!("big region of {:#x}, size {}", x.addr(), layout.size());
+            x},
         }
     }
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
@@ -70,7 +73,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
                 .unwrap()
                 .vmm_region_dealloc(ptr as usize);
         } else {
-            return cool.0.lock().as_mut().unwrap().free(ptr as usize);
+            return cool.0.lock().as_mut().unwrap().free(ptr);
         }
     }
 }

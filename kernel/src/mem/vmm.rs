@@ -375,7 +375,7 @@ impl PageMap {
                     length: align_up(size, 4096),
                     flags,
                 };
-
+                println!("created region {:#?}", new_guy);
                 let amou = align_up(size as usize, 4096) / 4096;
                 for i in 0..amou {
                     let data = {
@@ -409,6 +409,7 @@ impl PageMap {
         let mut idxx = -1;
         for (idx, i) in self.head.iter().enumerate() {
             if i.base == addr {
+                println!("deallocing region {:#?}", i);
                 let num_of_pages = i.length / 4096;
                 for f in 0..num_of_pages {
                     println!("deaellocing");

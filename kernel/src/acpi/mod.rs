@@ -106,10 +106,52 @@ impl KernelApi for KTUACPIAPI {
         todo!()
     }
     unsafe fn raw_io_read(&self, addr: uacpi::IOAddr, byte_width: u8) -> Result<u64, uacpi::Status> {
-        todo!()
+        if !byte_width.is_power_of_two() {return Err(uacpi::Status::InvalidArgument)};
+        match byte_width {
+            1 => {
+                let value: u8;
+                core::arch::asm!("in al, dx", out("al") value, in("dx") addr.as_u64());
+                Ok(value as u64)
+            },
+            2 => {
+                let value: u16;
+                core::arch::asm!("in ax, dx", out("ax") value, in("dx") addr.as_u64());
+                Ok(value as u64)
+            }
+            4 => {
+                let value: u32;
+                core::arch::asm!("in eax, dx", out("eax") value, in("dx") addr.as_u64());
+                Ok(value as u64)
+            }, 
+            _ => {
+                return Err(uacpi::Status::InvalidArgument);
+            }
+        }
     }
     unsafe fn raw_io_write(&self, addr: uacpi::IOAddr, byte_width: u8, val: u64) -> Result<(), uacpi::Status> {
-        todo!()
+        if !byte_width.is_power_of_two() {return Err(uacpi::Status::InvalidArgument)};
+        match byte_width {
+            1 => {
+                core::arch::asm!("out dx, al", in("al") val as u8, in("dx") addr.as_u64() as u16, options(nomem, nostack, preserves_flags));
+                return Ok(());
+            },
+            2 => {
+                core::arch::asm!("out dx, al", in("ax") val as u16, in("dx") addr.as_u64() as u16, options(nomem, nostack, preserves_flags));
+                return Ok(());
+            },
+            4 => {
+                core::arch::asm!("out dx, eax", in("dx") addr.as_u64() as u16, in("eax") val as u32, options(nomem, nostack, preserves_flags));
+                return Ok(());
+            },
+            8 => {
+                return Err(uacpi::Status::InvalidArgument);
+            }
+            _ => {
+                return Err(uacpi::Status::InvalidArgument);
+            }
+
+        }
+        
     }
     unsafe fn raw_memory_read(&self, phys: uacpi::PhysAddr, byte_width: u8) -> Result<u64, uacpi::Status> {
         let virt = phys.as_u64() as usize + HHDM.get_response().unwrap().offset() as usize;
@@ -206,7 +248,10 @@ impl KernelApi for KTUACPIAPI {
 pub fn init_acpi() {
     use alloc::sync::Arc;
     uacpi::kernel_api::set_kernel_api(Arc::new(KTUACPIAPI));
-    let st = uacpi::init(PhysAddr::new(rsdp.get_response().unwrap().address() as u64), LogLevel::DEBUG, false);
+    let st = uacpi::init(PhysAddr::new(rsdp.get_response().unwrap().address() as u64 - HHDM.get_response().unwrap().offset() as u64), LogLevel::DEBUG, false);
     st.unwrap();
+    let st = uacpi::namespace_load();
+    st.unwrap();
+    let st = uacpi::namespace_initialize();
     
 }
