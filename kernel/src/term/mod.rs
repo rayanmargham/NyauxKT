@@ -50,8 +50,8 @@ impl<'a> Terminal<'a> {
                 8,
                 16,
                 1,
-                2,
-                2,
+                1,
+                1,
                 20,
             );
             self.ctx = Some(ctx);

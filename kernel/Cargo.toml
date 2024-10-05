@@ -9,6 +9,6 @@ flanterm_bindings = "1.1.3"
 limine = "0.3.1"
 owo-colors = "4.1.0"
 spin = "0.9.8"
-
+uacpi = {git = "https://github.com/Qwinci/uacpi-rs"}
 [profile.release]
 debug = true

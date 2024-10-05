@@ -27,7 +27,7 @@ use crate::{mem::pmm::cool, println};
 
 unsafe impl GlobalAlloc for MemoryManagement {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.lock().as_mut().unwrap().alloc(layout.size()) {
+        match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 q.write_bytes(0, layout.size());
@@ -45,7 +45,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
         }
     }
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.lock().as_mut().unwrap().alloc(layout.size()) {
+        match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 q.write_bytes(0, layout.size());
@@ -70,7 +70,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
                 .unwrap()
                 .vmm_region_dealloc(ptr as usize);
         } else {
-            return cool.lock().as_mut().unwrap().free(ptr as usize);
+            return cool.0.lock().as_mut().unwrap().free(ptr as usize);
         }
     }
 }

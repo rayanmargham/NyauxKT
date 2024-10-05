@@ -12,7 +12,7 @@ use NyauxKT::idt::InterruptManager;
 use owo_colors::OwoColorize;
 use NyauxKT::mem::pmm::{pmm_alloc, pmm_dealloc, pmm_init, FREEPAGES};
 use NyauxKT::mem::vmm;
-use NyauxKT::println;
+use NyauxKT::{acpi, println};
 use NyauxKT::term::{clear_screenterm, TERMGBL};
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
@@ -63,6 +63,7 @@ unsafe extern "C" fn kmain() -> ! {
 
             drop(funny);
             vmm::PageMap::new_inital();
+            acpi::init_acpi();
         }
     }
 
