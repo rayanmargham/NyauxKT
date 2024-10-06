@@ -274,7 +274,7 @@ impl cache {
         println!("Created Cache of size: {size}");
         Self {
             size: size,
-            slabs: Some(slab_header::init(size)),
+            slabs: Some(new),
         }
     }
     fn slab_allocsearch(&mut self) -> Option<*mut u8> {
@@ -289,6 +289,7 @@ impl cache {
                 }
             }
         }
+        println!("creating new");
         let new = slab_header::init(self.size);
         
         unsafe {
