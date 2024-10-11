@@ -10,7 +10,7 @@ use crate::{mem::HHDM, println};
 #[link_section = ".requests"]
 static rsdp: limine::request::RsdpRequest = RsdpRequest::new();
 struct KTUACPIAPI;
-
+static mut o: i32 = 0;
 impl KernelApi for KTUACPIAPI {
     fn acquire_mutex(&self, mutex: uacpi::Handle, timeout: u16) -> bool {
         true
@@ -19,16 +19,23 @@ impl KernelApi for KTUACPIAPI {
         uacpi::CpuFlags::new(lock.as_u64())
     }
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        alloc::alloc::alloc(layout)
+        let q = alloc::alloc::alloc(layout);
+        if !(q as u64 % layout.align() as u64 == 0) {
+            panic!("FUCK");
+        }
+        q
     }
     fn create_event(&self) -> uacpi::Handle {
-        uacpi::Handle::new(3)
+        uacpi::Handle::new(1)
     }
     fn create_mutex(&self) -> uacpi::Handle {
-        uacpi::Handle::new(4)
+        unsafe {
+            o = o + 1;
+            uacpi::Handle::new(o as u64)
+        }
     }
     fn create_spinlock(&self) -> uacpi::Handle {
-        uacpi::Handle::new(5)
+        uacpi::Handle::new(1)
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         alloc::alloc::dealloc(ptr, layout);

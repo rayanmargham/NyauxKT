@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, ptr::write_bytes};
 
 use bitflags::{bitflags, Flags};
 use limine::{memory_map::EntryType, request::KernelAddressRequest};
@@ -387,14 +387,16 @@ impl PageMap {
                         o
                     };
                     self.map(
-                        data as usize,
+                        data.addr(),
                         new_guy.base + (i * 0x1000),
                         new_guy.flags.bits(),
                     );
                 }
+                let h = 0 as *mut u8;
+                unsafe {h.with_addr(new_guy.base).write_bytes(0, new_guy.length)};
                 let n = new_guy.base;
                 self.head.insert(idx, new_guy);
-                return Some(n as *mut u8);
+                return Some(h.with_addr(n) as *mut u8);
             } else {
                 store = Some(i);
                 continue;

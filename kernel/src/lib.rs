@@ -1,3 +1,4 @@
+
 #![no_std]
 #![feature(naked_functions)]
 // THIS IS FINE CAUSE I STAND BY NON CAMAL CASE
@@ -10,9 +11,11 @@
     dead_code,
     unused_macro_rules,
     unused_imports,
-    unused_macros
+    unused_macros,
+    
     
 )]
+#![feature(rustc_private)]
 #![feature(strict_provenance)]
 pub mod gdt;
 pub mod idt;

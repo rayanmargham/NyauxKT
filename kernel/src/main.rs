@@ -1,8 +1,10 @@
 #![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_main)]
+
+
 
 use core::arch::asm;
-
+use core::assert;
 use limine::request::{FramebufferRequest, RequestsEndMarker, RequestsStartMarker};
 use limine::BaseRevision;
 
@@ -13,6 +15,7 @@ use owo_colors::OwoColorize;
 use NyauxKT::mem::pmm::{pmm_alloc, pmm_dealloc, pmm_init, FREEPAGES};
 use NyauxKT::mem::vmm;
 use NyauxKT::{acpi, println};
+
 use NyauxKT::term::{clear_screenterm, TERMGBL};
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
@@ -35,6 +38,9 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 extern crate alloc;
 #[no_mangle]
+
+#[cfg(not(test))]
+
 unsafe extern "C" fn kmain() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
@@ -51,7 +57,7 @@ unsafe extern "C" fn kmain() -> ! {
             println!("it worked!");
 
             println!("trying out vectors");
-            let mut funny = alloc::vec::Vec::new();
+            let mut funny: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
             println!("is fine");
             funny.push(1);
             
@@ -78,12 +84,20 @@ unsafe extern "C" fn kmain() -> ! {
     hcf();
 }
 
-#[panic_handler]
+
+#[cfg_attr(not(test), panic_handler)]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     println!("{}", _info);
     hcf();
 }
-
+#[test]
+fn demo() {
+    extern crate std;
+    std::println!("hi");
+    let mut x = std::vec::Vec::new();
+    x.push(1);
+    assert_eq!([1], *x);
+}
 pub fn hcf() -> ! {
     loop {
         unsafe {

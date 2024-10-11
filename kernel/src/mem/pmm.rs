@@ -3,6 +3,7 @@ use crate::println;
 use super::align_up;
 use super::HHDM;
 use super::MEMMAP;
+use core::ffi::c_void;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::ptr::NonNull;
@@ -14,7 +15,7 @@ pub struct KTNode {
     next: Option<&'static mut KTNode>,
 }
 pub struct um {
-    next: Option<NonNull<um>>
+    next: holder_type
 }
 pub struct kmallocmanager {
     array: [cache; 7],
@@ -44,6 +45,7 @@ impl kmallocmanager {
         None
     }
     pub fn free(&mut self, addr: *mut u8) {
+        println!("problem here");
         if addr == core::ptr::null_mut() {
             return;
         }
@@ -59,6 +61,7 @@ impl kmallocmanager {
         if rightcache.is_none() {
             return;
         }
+        rightcache.unwrap().free(addr);
         
     }
     //     let header = unsafe { &mut *((addr & !0xFFF) as *mut slab_header) };
@@ -169,32 +172,94 @@ pub fn pmm_dealloc(addr: usize) -> Option<()> {
 #[derive(Debug)]
 struct cache {
     size: usize,
-    slabs: Option<NonNull<slab_header>>,
+    slabs: holder_type2,
 }
+#[derive(Debug)]
 struct holder_type(Option<NonNull<um>>);
-impl Iterator for holder_type {
-    type Item = NonNull<um>;
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut start = self.0;
-        unsafe {
-            if start.is_none() {
-                return None;
-            }
-            if (*start.unwrap().as_ptr()).next.is_some() {
-                start = (*start.unwrap().as_ptr()).next;
-            }
-            return Some(start.unwrap())
-        }
+
+#[derive(Debug)]
+struct holder_type2(Option<NonNull<slab_header>>);
+impl holder_type2 {
+    fn from_raw(h: NonNull<slab_header>) -> Self{
+        Self(Some(h))
     }
-    
+    fn new() -> Self {
+        Self(None)
+    }
 }
+impl holder_type {
+    fn from_raw(h: NonNull<um>) -> Self{
+        Self(Some(h))
+    }
+    fn new() -> Self {
+        Self(None)
+    }
+}
+
+
 #[derive(Debug)]
 #[repr(C)]
 struct slab_header {
     obj_size: usize,
-    next_slab: Option<NonNull<slab_header>>,
-    freelist: Option<NonNull<um>>,
+    next_slab: holder_type2,
+    freelist: holder_type,
 }
+
+#[derive(Debug)]
+struct LinkedListIter2<'a>(&'a mut holder_type2);
+#[derive(Debug)]
+struct LinkedListIter<'a>(&'a mut holder_type);
+impl<'a> IntoIterator for &'a mut holder_type2 {
+    type IntoIter = LinkedListIter2<'a>;
+    type Item = &'a mut slab_header;
+    fn into_iter(self) -> Self::IntoIter {
+        LinkedListIter2(self)
+    }
+}
+impl<'a> Iterator for LinkedListIter2<'a> {
+    type Item = &'a mut slab_header;
+    fn next(&mut self) -> Option<Self::Item> {
+       
+        unsafe {
+            // no idea how to impl this
+            self.0.0.and_then(|s|
+                {
+                    self.0 = 
+                        &mut (*s.as_ptr()).next_slab
+                    ;
+                    Some(s.as_ptr().as_mut())
+                }
+            )?
+        }
+    }
+    
+}
+impl<'a> IntoIterator for &'a mut holder_type {
+    type IntoIter = LinkedListIter<'a>;
+    type Item = &'a mut um;
+    fn into_iter(self) -> Self::IntoIter {
+        LinkedListIter(self)
+    }
+}
+impl<'a> Iterator for LinkedListIter<'a> {
+    type Item = &'a mut um;
+    fn next(&mut self) -> Option<Self::Item> {
+       
+        unsafe {
+            // no idea how to impl this
+            self.0.0.and_then(|s|
+                {
+                    self.0 = 
+                        &mut (*s.as_ptr()).next
+                    ;
+                    Some(s.as_ptr().as_mut())
+                }
+            )?
+        }
+    }
+    
+}
+
 pub struct kmallocmgr {
     array: [cache; 7],
 }
@@ -218,20 +283,48 @@ impl slab_header {
         for i in 1..obj_amount {
             unsafe {
                 let new = start.byte_add(i * size);
-                (*new.as_ptr()).next = None;
-                (*prev.as_ptr()).next = Some(new);
+                (*new.as_ptr()).next = holder_type::new();
+                (*prev.as_ptr()).next = holder_type::new();
                 prev = new;
             }
             
         }
         unsafe {
-            (*it.as_ptr()).freelist = Some(start);
+            (*it.as_ptr()).freelist = holder_type::from_raw(start);
+            (*it.as_ptr()).next_slab = holder_type2::new();
         }
+        
         return it;
         
         
 
         
+    }
+    fn pop(&mut self) -> Option<NonNull<um>> {
+        match core::mem::replace(&mut self.freelist.0, None) {
+            Some(t) => {
+                self.freelist.0 = unsafe {(*t.as_ptr()).next.0};
+                
+                Some(t)
+            },
+            None => {
+                None
+            }
+        }
+    }
+    fn push(&mut self, f: NonNull<um>) {
+        match core::mem::replace(&mut self.freelist.0, None) {
+            Some(t) => {
+                // self.freelist.0 = unsafe {(*t.as_ptr()).next.0};
+                unsafe {
+                    (*t.as_ptr()).next = holder_type::from_raw(f);
+                    self.freelist = holder_type::from_raw(f);
+                }
+                // Some(t)
+            },
+            None => {
+                self.freelist = holder_type::from_raw(f);
+            }}
     }
     
     //     let data = pmm_alloc().unwrap() as *mut u8;
@@ -272,61 +365,78 @@ impl cache {
     fn init(size: usize) -> Self {
         let new = slab_header::init(size);
         println!("Created Cache of size: {size}");
-        Self {
+        let ok = Self {
             size: size,
-            slabs: Some(new),
-        }
+            slabs: holder_type2::from_raw(new),
+        };
+        ok
+        
     }
     fn slab_allocsearch(&mut self) -> Option<*mut u8> {
+        
         let h = &mut self.slabs;
-        for i in h.iter_mut() {
-            
+        for j in h.into_iter() {
             unsafe {
-                if let Some(friend) = (*i.as_ptr()).freelist {
-                    (*i.as_ptr()).freelist = (*friend.as_ptr()).next;
-                    
-                    return Some(friend.as_ptr().cast::<u8>());
+                
+                match j.pop() {
+                    Some(y) => {
+                       
+                    y.as_ptr().cast::<u8>().write_bytes(0, self.size);
+                     return Some(y.as_ptr().cast::<u8>());
+                    },
+                    None => {
+                        
+                    }
                 }
             }
-        }
-        println!("creating new");
+        //     for i in unsafe {(*j.as_ptr()).freelist.0.iter_mut()} {
+            
+        //     unsafe {
+        //             (*j.as_ptr()).freelist = 
+                    
+        //             i.as_ptr().cast::<u8>().write_bytes(0, self.size);
+        //             return Some(i.as_ptr().cast::<u8>());
+                    
+                
+                
+            }
+        
+        
+        
+        // println!("creating new");
         let new = slab_header::init(self.size);
+        println!("getting more");
+
+        unsafe {
+            
+            
+            
+            match h.into_iter().last() {
+                Some(jh) => {
+                    (jh).next_slab = holder_type2::from_raw(new);
+                },
+                None => {
+                    (*h.0.unwrap().as_ptr()).next_slab = holder_type2::from_raw(new);
+                }
+            }
+            
+            // println!("h's yk: {:#x}", h.into_iter().last().unwrap().as_ptr().addr());
+        }
+        
+        self.slab_allocsearch()
+    }
+    pub fn free(&mut self, addr: *mut u8) {
+        if addr == core::ptr::null_mut() {
+            return;
+        }
+        let him = addr.map_addr(|a| a & !0xFFF).cast::<slab_header>();
         
         unsafe {
-            (*h.iter_mut().last().unwrap().as_ptr()).next_slab = Some(new);
+            addr.write_bytes(0, self.size);
+            let bro = addr.cast::<um>();
+            (*him).push(NonNull::new(bro).unwrap());
         }
-        self.slab_allocsearch()
-        // let mut h = &mut self.slabs;
-        // 'outer: loop {
-        //     println!("{:?}", h);
-        //     if let Some(fre) = h.as_mut().unwrap().freelist.take() {
-        //         h.as_mut().unwrap().freelist = unsafe {fre.assume_init().next};
-        //         return Some(unsafe {fre.assume_init()} as *mut um as usize);
-        //     } else {
-        //         if h.as_ref().unwrap().next_slab.is_none() {
-        //             println!("breaking out");
-        //             break 'outer;
-        //         } else {
-        //             println!("{:#?}", h.as_ref().unwrap().next_slab);
-        //         }
-        //         h = &mut h.as_mut().unwrap().next_slab;
-        //     }
-        // }
-        // println!("HELLLO???");
-        // let new = slab_header::init(self.size);
-
-        // let o = h.as_mut().unwrap().next_slab.take();
-        // println!("suc");
-        // if let Some(g) = o {
-        //     new.next_slab = Some(g);
-        //     h.as_mut().unwrap().next_slab = Some(new);
-        // } else {
-        //     h.as_mut().unwrap().next_slab = Some(new);
-        // }
-        // let gethim = h.as_mut().unwrap().next_slab.take().unwrap();
-        // println!("{:#?}", gethim.freelist);
-        // gethim.freelist = gethim.freelist.as_mut().unwrap().next.take();
-        // let gg = gethim.freelist.as_mut().take().unwrap();
-        // return Some(*gg as *mut KTNode as usize);
+    
+        
     }
 }

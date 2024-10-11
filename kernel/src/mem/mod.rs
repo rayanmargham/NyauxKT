@@ -18,8 +18,9 @@ pub fn align_down(addr: usize, align: usize) -> usize {
 }
 
 use core::alloc::GlobalAlloc;
+#[cfg_attr(not(test), no_main, no_std)]
+#[cfg_attr(target_os = "none", global_allocator)]
 
-#[global_allocator]
 static MGR: MemoryManagement = MemoryManagement;
 struct MemoryManagement;
 
@@ -30,7 +31,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
         match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
-                q.write_bytes(0, layout.size());
+                
                 println!("giving {:#x}, size: {}", q.addr(), layout.size());
                 return q;
             }
@@ -51,7 +52,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
         match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
-                q.write_bytes(0, layout.size());
+                
                 return q;
             }
             None => KERMAP

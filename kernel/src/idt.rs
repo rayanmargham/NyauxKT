@@ -1,5 +1,5 @@
 use core::ops::Deref;
-
+use core::arch::naked_asm;
 use spin::Mutex;
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -91,7 +91,7 @@ macro_rules! exception_function {
         extern "C" fn $handler() {
 
             unsafe {
-                core::arch::asm!(
+                naked_asm!(
                     "push rax",
                     "push rbx",
                     "push rcx",
@@ -130,8 +130,7 @@ macro_rules! exception_function {
                     "add rsp, 8",
                     "iretq",
                     const $code,
-                    sym exception_handler,
-                    options(noreturn)
+                    sym exception_handler
                 );
             };
 
@@ -149,7 +148,7 @@ macro_rules! exception_function_no_error {
         extern "C" fn $handler() {
 
             unsafe {
-                core::arch::asm!(
+                naked_asm!(
                     "push 0x0",
                     "push rax",
                     "push rbx",
@@ -189,8 +188,7 @@ macro_rules! exception_function_no_error {
                     "add rsp, 8",
                     "iretq",
                     const $code,
-                    sym $meow,
-                    options(noreturn)
+                    sym $meow
                 );
             };
 
@@ -208,7 +206,7 @@ macro_rules! exception_function_no_error_sched {
         extern "C" fn $handler() {
 
             unsafe {
-                core::arch::asm!(
+                naked_asm!(
 
                     "push 0x0",
                     "cmp qword ptr [rsp + 16], 0x43",
@@ -260,8 +258,7 @@ macro_rules! exception_function_no_error_sched {
 
 
                     const $code,
-                    sym $meow,
-                    options(noreturn)
+                    sym $meow
                 );
             };
 
@@ -301,3 +298,4 @@ impl InterruptManager {
         }
     }
 }
+
