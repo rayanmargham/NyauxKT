@@ -45,7 +45,7 @@ impl kmallocmanager {
         None
     }
     pub fn free(&mut self, addr: *mut u8) {
-        println!("problem here");
+        
         if addr == core::ptr::null_mut() {
             return;
         }
@@ -101,17 +101,16 @@ impl kmallocmanager {
     //     }
     // }
 }
-pub struct ContainerMemorySlab(pub Mutex<Option<kmallocmanager>>);
+pub struct ContainerMemorySlab(pub Option<kmallocmanager>);
 impl ContainerMemorySlab {
     const fn new() -> Self {
         
-        ContainerMemorySlab(Mutex::new(None))
+        ContainerMemorySlab(None)
     }
 }
 static HEAD: Mutex<Option<&mut KTNode>> = Mutex::new(None);
-pub static cool: ContainerMemorySlab = ContainerMemorySlab::new();
-unsafe impl Send for ContainerMemorySlab {}
-unsafe impl Sync for ContainerMemorySlab {}
+pub static mut cool: ContainerMemorySlab = ContainerMemorySlab::new();
+
 pub static FREEPAGES: AtomicUsize = AtomicUsize::new(0);
 pub fn pmm_init() {
     let mut head = HEAD.lock();
@@ -138,8 +137,10 @@ pub fn pmm_init() {
         FREEPAGES.load(Ordering::SeqCst)
     );
     drop(head);
-    let mut ok = cool.0.lock();
-    *ok = Some(kmallocmanager::init())
+    unsafe {
+       cool.0 = Some(kmallocmanager::init());
+    }
+    
 }
 
 pub fn pmm_alloc() -> Option<usize> {
@@ -405,7 +406,7 @@ impl cache {
         
         // println!("creating new");
         let new = slab_header::init(self.size);
-        println!("getting more");
+        //println!("getting more");
 
         unsafe {
             

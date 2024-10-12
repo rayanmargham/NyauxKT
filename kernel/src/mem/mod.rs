@@ -28,11 +28,11 @@ use crate::{mem::pmm::cool, println};
 
 unsafe impl GlobalAlloc for MemoryManagement {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
+        match cool.0.as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 
-                println!("giving {:#x}, size: {}", q.addr(), layout.size());
+                
                 return q;
             }
             None => {let x = KERMAP
@@ -44,12 +44,12 @@ unsafe impl GlobalAlloc for MemoryManagement {
                     VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
                 )
                 .unwrap();
-            println!("big region of {:#x}, size {}", x.addr(), layout.size());
+            
             x},
         }
     }
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.0.lock().as_mut().unwrap().alloc(layout.size()) {
+        match cool.0.as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 
@@ -68,13 +68,13 @@ unsafe impl GlobalAlloc for MemoryManagement {
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         if layout.size() > 4096 {
-            KERMAP
-                .lock()
-                .as_mut()
-                .unwrap()
-                .vmm_region_dealloc(ptr as usize);
+            // KERMAP
+            //     .lock()
+            //     .as_mut()
+            //     .unwrap()
+            //     .vmm_region_dealloc(ptr as usize);
         } else {
-            return cool.0.lock().as_mut().unwrap().free(ptr);
+            return cool.0.as_mut().unwrap().free(ptr);
         }
     }
 }

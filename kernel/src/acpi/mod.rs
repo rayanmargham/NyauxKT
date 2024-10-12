@@ -1,11 +1,15 @@
-use core::{ffi::c_void, fmt};
+use core::{alloc::Layout, ffi::c_void, fmt};
 
 use limine::request::RsdpRequest;
 use owo_colors::OwoColorize;
-use uacpi::{kernel_api::KernelApi, LogLevel, PhysAddr};
+use uacpi::{kernel_api::KernelApi, Handle, IOAddr, LogLevel, PhysAddr};
 extern crate alloc;
 use alloc::boxed::Box;
 use crate::{mem::HHDM, println};
+pub struct IOthingy {
+    base: IOAddr,
+    len: usize
+}
 #[used]
 #[link_section = ".requests"]
 static rsdp: limine::request::RsdpRequest = RsdpRequest::new();
@@ -60,16 +64,27 @@ impl KernelApi for KTUACPIAPI {
     }
     fn install_interrupt_handler(&self, irq: u32, handler: Box<dyn Fn()>,
         ) -> Result<uacpi::Handle, uacpi::Status> {
-        todo!()
+       Ok(uacpi::Handle::new(4))
     }
     unsafe fn io_map(&self, base: uacpi::IOAddr, len: usize) -> Result<uacpi::Handle, uacpi::Status> {
-        todo!()
+        let bro = alloc::alloc::alloc(Layout::new::<IOthingy>());
+        Ok(
+            
+            Handle::new(bro.addr() as u64)
+        )
     }
     unsafe fn io_read(&self, handle: uacpi::Handle, offset: usize, byte_width: u8) -> Result<u64, uacpi::Status> {
-        todo!()
+        let ok = handle.as_u64();
+        
+       
+        let ok = core::ptr::with_exposed_provenance_mut::<IOthingy>(ok as usize);
+        
+        self.raw_io_read((*ok).base, byte_width)
     }
     unsafe fn io_unmap(&self, handle: uacpi::Handle) {
-        todo!()
+        let ok = handle.as_u64();
+        let ok = core::ptr::with_exposed_provenance_mut::<IOthingy>(ok as usize);
+        alloc::alloc::dealloc(ok.cast::<u8>(), Layout::new::<IOthingy>());
     }
     unsafe fn io_write(
             &self,
@@ -78,7 +93,9 @@ impl KernelApi for KTUACPIAPI {
             byte_width: u8,
             val: u64,
         ) -> Result<(), uacpi::Status> {
-        todo!()
+            let ok = handle.as_u64();
+            let ok = core::ptr::with_exposed_provenance_mut::<IOthingy>(ok as usize);
+            self.raw_io_write((*ok).base, byte_width, val)
     }
     fn log(&self, log_level: uacpi::LogLevel, string: &str) {
         println!("uacpi [{}]: {}", {
@@ -101,7 +118,7 @@ impl KernelApi for KTUACPIAPI {
             offset: usize,
             byte_width: u8,
         ) -> Result<u64, uacpi::Status> {
-        todo!()
+        Err(uacpi::Status::Unimplemented)
     }
     unsafe fn pci_write(
             &self,
@@ -110,10 +127,10 @@ impl KernelApi for KTUACPIAPI {
             byte_width: u8,
             val: u64,
         ) -> Result<(), uacpi::Status> {
-        todo!()
+            Err(uacpi::Status::Unimplemented)
     }
     unsafe fn raw_io_read(&self, addr: uacpi::IOAddr, byte_width: u8) -> Result<u64, uacpi::Status> {
-        if !byte_width.is_power_of_two() {return Err(uacpi::Status::InvalidArgument)};
+        if byte_width.is_power_of_two() == false {return Err(uacpi::Status::InvalidArgument);};
         match byte_width {
             1 => {
                 let value: u8;
@@ -136,7 +153,7 @@ impl KernelApi for KTUACPIAPI {
         }
     }
     unsafe fn raw_io_write(&self, addr: uacpi::IOAddr, byte_width: u8, val: u64) -> Result<(), uacpi::Status> {
-        if !byte_width.is_power_of_two() {return Err(uacpi::Status::InvalidArgument)};
+        if !byte_width.is_power_of_two() {return Err(uacpi::Status::InvalidArgument);};
         match byte_width {
             1 => {
                 core::arch::asm!("out dx, al", in("al") val as u8, in("dx") addr.as_u64() as u16, options(nomem, nostack, preserves_flags));
@@ -255,10 +272,11 @@ impl KernelApi for KTUACPIAPI {
 pub fn init_acpi() {
     use alloc::sync::Arc;
     uacpi::kernel_api::set_kernel_api(Arc::new(KTUACPIAPI));
-    let st = uacpi::init(PhysAddr::new(rsdp.get_response().unwrap().address() as u64 - HHDM.get_response().unwrap().offset() as u64), LogLevel::DEBUG, false);
+    let st = uacpi::init(PhysAddr::new(rsdp.get_response().unwrap().address() as u64 - HHDM.get_response().unwrap().offset() as u64), LogLevel::TRACE, false);
     st.unwrap();
     let st = uacpi::namespace_load();
     st.unwrap();
     let st = uacpi::namespace_initialize();
+    println!("Succeded !");
     
 }

@@ -28,9 +28,17 @@ impl GateDescriptor {
 extern "C" fn exception_handler(registers: u64) {
     let got_registers = unsafe { &*(registers as *mut Registers) };
     panic!(
-        "crash vec {:#x} \nwith register rip at {:#x}\nerror code {:#x} \nrflags {:#x} idiot",
-        got_registers.int, got_registers.rip, got_registers.error_code, got_registers.rflags
+        "crash vec {:#x} \nwith register rip at {:#x}\nerror code {:#x} \ncr2 is {:#x}\nrflags {:#x} idiot",
+        got_registers.int, got_registers.rip, got_registers.error_code, read_cr2(), got_registers.rflags
     );
+}
+pub fn read_cr2() -> usize {
+    let val: usize;
+    unsafe {core::arch::asm!(
+        "mov {}, cr2",
+        out(reg) val
+    )};
+    val
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]

@@ -37,6 +37,7 @@ pub struct VMMRegion {
     base: usize,
     length: usize,
     flags: VMMFlags,
+    iskernel: bool
 }
 impl fmt::Debug for VMMRegion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -48,8 +49,99 @@ impl fmt::Debug for VMMRegion {
     }
 }
 #[derive(Debug)]
+pub struct VMMList {
+    head: Link
+}
+#[derive(Debug)]
+pub struct Elem {
+    elem: VMMRegion,
+    next: Link
+}
+type Link = Option<Box<Elem>>;
+impl VMMList {
+    pub fn new() -> Self {
+        VMMList {
+            head: None
+        }
+    }
+    pub fn push(&mut self, r: VMMRegion) {
+        let new_node = Box::new(Elem {
+            elem: r,
+            next: core::mem::replace(&mut self.head, None),
+        });
+
+        self.head = Some(new_node);
+    }
+    pub fn pop(&mut self) -> Option<VMMRegion> {
+        match core::mem::replace(&mut self.head, None) {
+            None => None,
+            Some(node) => {
+                self.head = node.next;
+                Some(node.elem)
+            }
+        }
+    }
+    pub fn peek(&self) -> Option<&VMMRegion> {
+        self.head.as_ref().map(|node|
+        &node.elem)
+    }
+    pub fn into_iter(self) -> VMMListIter {
+        VMMListIter(self)
+    }
+    pub fn iter<'a>(&'a self) -> Iter<'a> {
+        Iter {
+            next: self.head.as_deref()
+        }
+    }
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a> {
+        IterMut {
+            next: self.head.as_deref_mut()
+        }
+    }
+}
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a VMMRegion;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.map(|node| {
+            self.next = node.next.as_deref();
+            &node.elem
+        })
+    }
+}
+impl Drop for VMMList {
+    fn drop(&mut self) {
+        let mut cur_link = core::mem::replace(&mut self.head, None);
+        while let Some(mut boxed_node) = cur_link {
+            cur_link = core::mem::replace(&mut boxed_node.next, None);
+        }
+    }
+}
+pub struct VMMListIter(VMMList);
+impl Iterator for VMMListIter {
+    type Item = VMMRegion;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop()
+    }
+}
+impl <'a> Iterator for IterMut<'a> {
+    type Item = &'a mut VMMRegion;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.take().map(|node| {
+            self.next = node.next.as_deref_mut();
+            &mut node.elem
+        })
+    }
+}
+pub struct Iter<'a> {
+    next: Option<&'a Elem>
+}
+pub struct IterMut<'a> {
+    next: Option<&'a mut Elem>
+}
+
+#[derive(Debug)]
 pub struct PageMap {
-    head: Vec<VMMRegion>,
+    head: VMMList,
     rootpagetable: *mut usize,
 }
 #[macro_export]
@@ -60,6 +152,13 @@ macro_rules! unwrap_or_return {
             None => return,
         }
     };
+}
+#[test]
+fn t() {
+    let ok = VMMList::new();
+    for i in ok.iter() {
+
+    }
 }
 #[macro_export]
 macro_rules! unwrap_or_return0 {
@@ -225,7 +324,7 @@ impl PageMap {
     }
     pub fn new_inital() {
         let mut q = PageMap {
-            head: Vec::new(),
+            head: VMMList::new(),
             rootpagetable: unsafe {
                 let data = pmm_alloc().unwrap();
                 (data as *mut u8)
@@ -310,7 +409,7 @@ impl PageMap {
         q.switch_to();
         q.region_setup(hhdm_pages);
 
-        q.region_walk();
+        
         *KERMAP.lock() = Some(q);
 
         println!("vmm inited");
@@ -350,87 +449,138 @@ impl PageMap {
             base: ADDR.get_response().unwrap().virtual_base() as usize,
             length: unsafe { align_up(&THE_REAL as *const _ as usize, 4096) },
             flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+            iskernel: true
         };
         let HHDMM = VMMRegion {
             base: HHDM.get_response().unwrap().offset() as usize,
             length: align_up(pages_in_hhdm * 0x1000, 4096),
             flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
+            iskernel: false
         };
-
-        self.head.push(HHDMM);
         self.head.push(ITSHIM);
+        self.head.push(HHDMM);
+        
     }
     pub fn vmm_region_alloc(&mut self, size: usize, flags: VMMFlags) -> Option<*mut u8> {
-        let mut store = None;
+        let mut store: Option<&mut VMMRegion> = None;
         for (idx, i) in self.head.iter_mut().enumerate() {
-            if idx == 0 {
+            if store.is_none() {
                 store = Some(i);
-
                 continue;
             }
-            let temp = store.as_mut().unwrap();
-            if i.base - temp.base + temp.length >= align_up(size as usize, 4096) as usize + 0x1000 {
+            let temp = store.unwrap();
+            
+            if i.base.wrapping_sub((temp.base + temp.length)) >= align_up(size as usize, 4096) as usize + 0x1000 {
                 let new_guy = VMMRegion {
-                    base: temp.base + temp.length,
-                    length: align_up(size, 4096),
-                    flags,
-                };
-                println!("created region {:#?}", new_guy);
-                let amou = align_up(size as usize, 4096) / 4096;
-                for i in 0..amou {
-                    let data = {
-                        let o = pmm_alloc().unwrap() as *mut u8;
-                        unsafe {
-                            o.add(HHDM.get_response().unwrap().offset() as usize)
-                                .write_bytes(0, 4096);
-                        }
-                        o
-                    };
-                    self.map(
-                        data.addr(),
-                        new_guy.base + (i * 0x1000),
-                        new_guy.flags.bits(),
-                    );
-                }
-                let h = 0 as *mut u8;
-                unsafe {h.with_addr(new_guy.base).write_bytes(0, new_guy.length)};
-                let n = new_guy.base;
-                self.head.insert(idx, new_guy);
-                return Some(h.with_addr(n) as *mut u8);
-            } else {
-                store = Some(i);
-                continue;
-            }
-            // |    |              |    |
-            // |    |  FREE SPACE  |    |
-            // |____|. . . . . . . |____|
+                                base: temp.base + temp.length,
+                                length: align_up(size, 4096),
+                                flags,
+                                iskernel: false
+                            };
+                           
+                            let amou = align_up(size as usize, 4096) / 4096;
+                            for i in 0..amou {
+                                let data = {
+                                    let o = pmm_alloc().unwrap() as *mut u8;
+                                    unsafe {
+                                        o.add(HHDM.get_response().unwrap().offset() as usize)
+                                            .write_bytes(0, 4096);
+                                    }
+                                    o
+                                };
+                                self.map(
+                                    data.addr(),
+                                    new_guy.base + (i * 0x1000),
+                                    new_guy.flags.bits(),
+                                );
+                            }
+                            let h = 0 as *mut u8;
+                            unsafe {h.with_addr(new_guy.base).write_bytes(0, new_guy.length)};
+                            let n = new_guy.base;
+                            
+                            self.head.push(new_guy);
+
+                            return Some(h.with_addr(n) as *mut u8);
+                            
+            }else {
+                                        store = Some(i);
+                                        continue;
+                                    }
+            
         }
-        panic!("out of vmm region space lmao");
+        panic!("no space");
+        // let mut store = None;
+        // for (idx, i) in self.head.iter_mut().enumerate() {
+        //     if idx == 0 {
+        //         store = Some(i);
+
+        //         continue;
+        //     }
+        //     let temp = store.as_mut().unwrap();
+        //     if i.base - (temp.base + temp.length) >= align_up(size as usize, 4096) as usize + 0x1000 {
+        //         let new_guy = VMMRegion {
+        //             base: temp.base + temp.length,
+        //             length: align_up(size, 4096),
+        //             flags,
+        //         };
+        //         println!("created region {:#?}", new_guy);
+        //         let amou = align_up(size as usize, 4096) / 4096;
+        //         for i in 0..amou {
+        //             let data = {
+        //                 let o = pmm_alloc().unwrap() as *mut u8;
+        //                 unsafe {
+        //                     o.add(HHDM.get_response().unwrap().offset() as usize)
+        //                         .write_bytes(0, 4096);
+        //                 }
+        //                 o
+        //             };
+        //             self.map(
+        //                 data.addr(),
+        //                 new_guy.base + (i * 0x1000),
+        //                 new_guy.flags.bits(),
+        //             );
+        //         }
+        //         let h = 0 as *mut u8;
+        //         unsafe {h.with_addr(new_guy.base).write_bytes(0, new_guy.length)};
+        //         let n = new_guy.base;
+        //         self.head.insert(idx, new_guy);
+        //         self.region_walk();
+        //         return Some(h.with_addr(n) as *mut u8);
+        //     } else {
+        //         store = Some(i);
+        //         continue;
+        //     }
+        //     // |    |              |    |
+        //     // |    |  FREE SPACE  |    |
+        //     // |____|. . . . . . . |____|
+        // }
+        // panic!("out of vmm region space lmao");
     }
     pub fn vmm_region_dealloc(&mut self, addr: usize) {
-        let mut idxx = -1;
-        for (idx, i) in self.head.iter().enumerate() {
-            if i.base == addr {
-                println!("deallocing region {:#?}", i);
-                let num_of_pages = i.length / 4096;
-                for f in 0..num_of_pages {
-                    println!("deaellocing");
-                    let phys = self.virt_to_phys(i.base + (f * 0x1000)).unwrap() as *mut u8;
-                    self.unmap(i.base + (f * 0x1000));
-                    assert_eq!(
-                        None,
-                        Self::find_pte(self.rootpagetable as usize, i.base + (f * 0x1000))
-                    );
+        todo!()
+        // let mut idxx = -1;
+        // for (idx, i) in self.head.iter().enumerate() {
+        //     if i.base == addr {
+        //         println!("deallocing region {:#?}", i);
+        //         let num_of_pages = i.length / 4096;
+        //         for f in 0..num_of_pages {
+        //             println!("deaellocing");
+        //             let phys = self.virt_to_phys(i.base + (f * 0x1000)).unwrap() as *mut u8;
+        //             self.unmap(i.base + (f * 0x1000));
+        //             assert_eq!(
+        //                 None,
+        //                 Self::find_pte(self.rootpagetable as usize, i.base + (f * 0x1000))
+        //             );
 
-                    pmm_dealloc(phys as usize).unwrap();
-                }
-                idxx = idx as i32;
-            }
-        }
-        if idxx == -1 {
-            println!("WTF");
-            return;
-        }
-        self.head.remove(idxx as usize);
+        //             pmm_dealloc(phys as usize).unwrap();
+        //         }
+        //         idxx = idx as i32;
+        //     }
+        // }
+        // if idxx == -1 {
+        //     println!("WTF");
+        //     return;
+        // }
+        // self.head.remove(idxx as usize);
     }
 }

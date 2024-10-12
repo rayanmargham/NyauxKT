@@ -23,7 +23,7 @@ all:
 
 .PHONY: test
 test:
-	RUSTFLAGS="" cargo test
+	RUSTFLAGS="" cargo test --target x86_64-unknown-linux-gnu
 # Remove object files and the final executable.
 .PHONY: clean
 clean:
