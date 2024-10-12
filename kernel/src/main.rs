@@ -11,12 +11,12 @@ use limine::BaseRevision;
 use NyauxKT::gdt::init_gdt;
 use NyauxKT::idt::InterruptManager;
 
-use owo_colors::OwoColorize;
-use NyauxKT::mem::pmm::{pmm_alloc, pmm_dealloc, pmm_init, FREEPAGES};
+use NyauxKT::mem::pmm::pmm_init;
 use NyauxKT::mem::vmm;
 use NyauxKT::{acpi, println};
 
-use NyauxKT::term::{clear_screenterm, TERMGBL};
+use NyauxKT::term::TERMGBL;
+use build_timestamp::build_time;
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 /// Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -37,6 +37,7 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 #[link_section = ".requests_end_marker"]
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 extern crate alloc;
+build_time!("%H:%M:%S on %A %Y-%m-%d");
 #[no_mangle]
 
 #[cfg(not(test))]
@@ -53,29 +54,11 @@ unsafe extern "C" fn kmain() -> ! {
             InterruptManager::start_idt();
             TERMGBL.lock().init(&framebuffer);
             println!("Booting Kernel...");
+            println!("Nyaux KT. Built at: {}", BUILD_TIME);
             pmm_init();
-            println!("it worked!");
-
-            println!("trying out vectors");
-            let mut funny: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
-            println!("is fine");
-            funny.push(1);
             
-            funny.push(2);
-            println!("failed");
-            funny.push(3);
-            println!("failed");
-            funny.push(4);
-            println!("failed");
-            funny.push(5);
-            println!("failed");
-            assert_eq!([1, 2, 3, 4, 5], *funny);
-            println!("failed");
-            
-            println!("IT WORKED");
-            println!("{:#?}", funny);
 
-            drop(funny);
+            
             vmm::PageMap::new_inital();
             acpi::init_acpi();
         }

@@ -4,9 +4,10 @@ use limine::{
 };
 use vmm::{VMMFlags, KERMAP};
 pub mod pmm;
+use spin::Mutex;
 #[used]
 #[link_section = ".requests"]
-pub static mut MEMMAP: limine::request::MemoryMapRequest = MemoryMapRequest::new();
+pub static MEMMAP: Mutex<limine::request::MemoryMapRequest> = Mutex::new(MemoryMapRequest::new());
 #[used]
 #[link_section = ".requests"]
 pub static HHDM: limine::request::HhdmRequest = HhdmRequest::new();
@@ -28,7 +29,7 @@ use crate::{mem::pmm::cool, println};
 
 unsafe impl GlobalAlloc for MemoryManagement {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.0.as_mut().unwrap().alloc(layout.size()) {
+        match  cool.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 
@@ -49,7 +50,7 @@ unsafe impl GlobalAlloc for MemoryManagement {
         }
     }
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
-        match cool.0.as_mut().unwrap().alloc(layout.size()) {
+        match cool.lock().as_mut().unwrap().alloc(layout.size()) {
             Some(q) => {
                 let q = q as *mut u8;
                 
@@ -68,13 +69,13 @@ unsafe impl GlobalAlloc for MemoryManagement {
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         if layout.size() > 4096 {
-            // KERMAP
-            //     .lock()
-            //     .as_mut()
-            //     .unwrap()
-            //     .vmm_region_dealloc(ptr as usize);
+            KERMAP
+                .lock()
+                .as_mut()
+                .unwrap()
+                .vmm_region_dealloc(ptr);
         } else {
-            return cool.0.as_mut().unwrap().free(ptr);
+            return  cool.lock().as_mut().unwrap().free(ptr);
         }
     }
 }

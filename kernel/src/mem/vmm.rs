@@ -10,11 +10,11 @@ use spin::Mutex;
 
 use crate::{
     hcf,
-    mem::{align_down, align_up, pmm::pmm_dealloc, MEMMAP},
-    println,
+    mem::{align_down, align_up, pmm::{cache, pmm_dealloc}, MEMMAP},
+    println, List, VList,
 };
 bitflags! {
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq)]
     pub struct VMMFlags: usize
     {
         const KTEXECUTABLEDISABLE = 1 << 63;
@@ -32,7 +32,7 @@ bitflags! {
 use alloc::vec::Vec;
 
 use super::{pmm::pmm_alloc, HHDM};
-
+#[derive(PartialEq)]
 pub struct VMMRegion {
     base: usize,
     length: usize,
@@ -48,101 +48,12 @@ impl fmt::Debug for VMMRegion {
         )
     }
 }
-#[derive(Debug)]
-pub struct VMMList {
-    head: Link
-}
-#[derive(Debug)]
-pub struct Elem {
-    elem: VMMRegion,
-    next: Link
-}
-type Link = Option<Box<Elem>>;
-impl VMMList {
-    pub fn new() -> Self {
-        VMMList {
-            head: None
-        }
-    }
-    pub fn push(&mut self, r: VMMRegion) {
-        let new_node = Box::new(Elem {
-            elem: r,
-            next: core::mem::replace(&mut self.head, None),
-        });
 
-        self.head = Some(new_node);
-    }
-    pub fn pop(&mut self) -> Option<VMMRegion> {
-        match core::mem::replace(&mut self.head, None) {
-            None => None,
-            Some(node) => {
-                self.head = node.next;
-                Some(node.elem)
-            }
-        }
-    }
-    pub fn peek(&self) -> Option<&VMMRegion> {
-        self.head.as_ref().map(|node|
-        &node.elem)
-    }
-    pub fn into_iter(self) -> VMMListIter {
-        VMMListIter(self)
-    }
-    pub fn iter<'a>(&'a self) -> Iter<'a> {
-        Iter {
-            next: self.head.as_deref()
-        }
-    }
-    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a> {
-        IterMut {
-            next: self.head.as_deref_mut()
-        }
-    }
-}
-impl<'a> Iterator for Iter<'a> {
-    type Item = &'a VMMRegion;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next.map(|node| {
-            self.next = node.next.as_deref();
-            &node.elem
-        })
-    }
-}
-impl Drop for VMMList {
-    fn drop(&mut self) {
-        let mut cur_link = core::mem::replace(&mut self.head, None);
-        while let Some(mut boxed_node) = cur_link {
-            cur_link = core::mem::replace(&mut boxed_node.next, None);
-        }
-    }
-}
-pub struct VMMListIter(VMMList);
-impl Iterator for VMMListIter {
-    type Item = VMMRegion;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
-    }
-}
-impl <'a> Iterator for IterMut<'a> {
-    type Item = &'a mut VMMRegion;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next.take().map(|node| {
-            self.next = node.next.as_deref_mut();
-            &mut node.elem
-        })
-    }
-}
-pub struct Iter<'a> {
-    next: Option<&'a Elem>
-}
-pub struct IterMut<'a> {
-    next: Option<&'a mut Elem>
-}
 
 #[derive(Debug)]
 pub struct PageMap {
-    head: VMMList,
-    rootpagetable: *mut usize,
+    head: VList<VMMRegion>,
+    rootpagetable: *mut usize
 }
 #[macro_export]
 macro_rules! unwrap_or_return {
@@ -155,7 +66,7 @@ macro_rules! unwrap_or_return {
 }
 #[test]
 fn t() {
-    let ok = VMMList::new();
+    let ok: List<VMMRegion> = List::new::<VMMRegion>();
     for i in ok.iter() {
 
     }
@@ -195,7 +106,7 @@ impl PageMap {
             if entry & VMMFlags::KTPRESENT.bits() == 0 {
                 let new_pt = pmm_alloc().unwrap();
                 let (reference, other) = unsafe {
-                    let o = (new_pt as *mut u8);
+                    let o = new_pt as *mut u8;
                     o.add(HHDM.get_response().unwrap().offset() as usize)
                         .write_bytes(0, 4096);
                     let j = o as *mut usize;
@@ -259,7 +170,7 @@ impl PageMap {
             let idx = (va >> shift) & 0x1ff;
             let ptab: &mut [usize; 512] = unsafe { &mut *virt(pt) };
             if i == 3 {
-                if (ptab[idx] == 0) {
+                if ptab[idx] == 0 {
                     return None;
                 }
                 return Some(&mut ptab[idx] as &mut usize);
@@ -299,7 +210,7 @@ impl PageMap {
         *him = (pt & !0x1fffff_usize) | flags | VMMFlags::KT2MB.bits();
     }
     pub fn unmap(&self, va: usize) {
-        let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
+        let him = Self::find_pte(self.rootpagetable as usize, va);
         if let Some(h) = him {
             *h = 0;
 
@@ -315,16 +226,16 @@ impl PageMap {
         }
     }
     pub fn virt_to_phys(&self, va: usize) -> Option<usize> {
-        let him = unsafe { Self::find_pte(self.rootpagetable as usize, va) };
+        let him = Self::find_pte(self.rootpagetable as usize, va);
         if let Some(h) = him {
-            return unsafe { Some(*h & 0x0007FFFFFFFFF000) };
+            return Some(*h & 0x0007FFFFFFFFF000);
         } else {
             None
         }
     }
     pub fn new_inital() {
         let mut q = PageMap {
-            head: VMMList::new(),
+            head: VList::new::<VMMRegion>(cache::init(size_of::<VMMRegion>().next_power_of_two())),
             rootpagetable: unsafe {
                 let data = pmm_alloc().unwrap();
                 (data as *mut u8)
@@ -332,6 +243,7 @@ impl PageMap {
                     .write_bytes(0, 4096);
                 data as *mut usize
             },
+            
         };
         println!("done");
         let size_pages = unsafe { align_up(&THE_REAL as *const _ as usize, 4096) / 4096 };
@@ -356,8 +268,8 @@ impl PageMap {
             hhdm_pages += 1;
         }
         println!("hhdm mapped, mapping memory map");
-
-        let entries = unsafe { MEMMAP.get_response_mut().unwrap().entries_mut() };
+        let mut lock = MEMMAP.lock();
+        let entries = lock.get_response_mut().unwrap().entries_mut();
         for i in entries.iter_mut() {
             match i.entry_type {
                 EntryType::ACPI_NVS
@@ -470,7 +382,7 @@ impl PageMap {
             }
             let temp = store.unwrap();
             
-            if i.base.wrapping_sub((temp.base + temp.length)) >= align_up(size as usize, 4096) as usize + 0x1000 {
+            if i.base.wrapping_sub(temp.base + temp.length) >= align_up(size as usize, 4096) as usize + 0x1000 {
                 let new_guy = VMMRegion {
                                 base: temp.base + temp.length,
                                 length: align_up(size, 4096),
@@ -499,7 +411,7 @@ impl PageMap {
                             let n = new_guy.base;
                             
                             self.head.push(new_guy);
-
+                            
                             return Some(h.with_addr(n) as *mut u8);
                             
             }else {
@@ -556,8 +468,22 @@ impl PageMap {
         // }
         // panic!("out of vmm region space lmao");
     }
-    pub fn vmm_region_dealloc(&mut self, addr: usize) {
-        todo!()
+    pub fn vmm_region_dealloc(&mut self, addr: *mut u8) {
+        if addr == core::ptr::null_mut() {
+            return;
+        }
+        let mut store: Option<&mut VMMRegion> = None;
+        for i in self.head.iter_mut() {
+            if store.is_none() {
+                store = Some(i);
+                continue;
+            }
+            let temp = store.as_mut().unwrap();
+            if i.base == addr.addr(){
+                // let ok = self.head.peek_raw().expect("This is not Possible...");
+                
+            }
+        }
         // let mut idxx = -1;
         // for (idx, i) in self.head.iter().enumerate() {
         //     if i.base == addr {

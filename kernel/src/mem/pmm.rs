@@ -101,20 +101,19 @@ impl kmallocmanager {
     //     }
     // }
 }
-pub struct ContainerMemorySlab(pub Option<kmallocmanager>);
-impl ContainerMemorySlab {
-    const fn new() -> Self {
-        
-        ContainerMemorySlab(None)
-    }
-}
+
+use alloc::sync::Arc;
+unsafe impl Sync for kmallocmanager {}
+unsafe impl Send for kmallocmanager {}
 static HEAD: Mutex<Option<&mut KTNode>> = Mutex::new(None);
-pub static mut cool: ContainerMemorySlab = ContainerMemorySlab::new();
+
+pub static cool: Mutex<Option<kmallocmanager>> = Mutex::new(None);
 
 pub static FREEPAGES: AtomicUsize = AtomicUsize::new(0);
 pub fn pmm_init() {
     let mut head = HEAD.lock();
-    let o = unsafe { MEMMAP.get_response().unwrap().entries() };
+    let mut hhh = MEMMAP.lock();
+    let o = hhh.get_response_mut().unwrap().entries();
     let mut last = None;
     let jk = HHDM.get_response().unwrap().offset();
     for entry in o
@@ -137,9 +136,9 @@ pub fn pmm_init() {
         FREEPAGES.load(Ordering::SeqCst)
     );
     drop(head);
-    unsafe {
-       cool.0 = Some(kmallocmanager::init());
-    }
+    
+    *cool.lock() = Some(kmallocmanager::init());
+    
     
 }
 
@@ -171,7 +170,7 @@ pub fn pmm_dealloc(addr: usize) -> Option<()> {
     Some(())
 }
 #[derive(Debug)]
-struct cache {
+pub struct cache {
     size: usize,
     slabs: holder_type2,
 }
@@ -235,6 +234,7 @@ impl<'a> Iterator for LinkedListIter2<'a> {
     }
     
 }
+
 impl<'a> IntoIterator for &'a mut holder_type {
     type IntoIter = LinkedListIter<'a>;
     type Item = &'a mut um;
@@ -363,7 +363,7 @@ impl slab_header {
     // }
 }
 impl cache {
-    fn init(size: usize) -> Self {
+    pub fn init(size: usize) -> Self {
         let new = slab_header::init(size);
         println!("Created Cache of size: {size}");
         let ok = Self {
@@ -373,7 +373,7 @@ impl cache {
         ok
         
     }
-    fn slab_allocsearch(&mut self) -> Option<*mut u8> {
+    pub fn slab_allocsearch(&mut self) -> Option<*mut u8> {
         
         let h = &mut self.slabs;
         for j in h.into_iter() {
@@ -439,5 +439,21 @@ impl cache {
         }
     
         
+    }
+    pub fn clear_all_slabs(&mut self) {
+        let mut cur_link = core::mem::replace(&mut self.slabs, holder_type2(None));
+        while let Some(mut slab) = cur_link.0 {
+            let g = unsafe {slab.as_mut()};
+            let test = g.freelist.0.unwrap();
+            unsafe {test.cast::<u8>().write_bytes(0, 4096)};
+            cur_link = core::mem::replace(&mut g.next_slab, holder_type2::new());
+            
+
+        }
+    }
+}
+impl Drop for cache {
+    fn drop(&mut self) {
+        self.clear_all_slabs();
     }
 }
