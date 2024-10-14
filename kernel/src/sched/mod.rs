@@ -1,3 +1,5 @@
+use core::sync::atomic::AtomicPtr;
+
 use alloc::{
     boxed::Box,
     collections::vec_deque::VecDeque,
@@ -92,17 +94,20 @@ impl cpu_ctx {
 struct process<'a> {
     pagemap: &'a mut PageMap,
 }
-#[repr(C, packed(8))]
+#[repr(C, align(8))]
 pub struct perthreadcpu<'a> {
-    kernal_stack_ptr: *mut u8,
+    kernal_stack_ptr: AtomicPtr<u8>,
     user_stack_ptr: Option<*mut u8>,
     run_queue: Option<*mut Thread<'a>>,  // head of run queue
     cur_thread: Option<*mut Thread<'a>>, // cur_thread atm
 }
 #[no_mangle]
 extern "C" fn lol() -> ! {
-    println!("hi");
-    loop {}
+    let mut o = 5;
+    loop {
+        println!("hi {}", o);
+        o += 1;
+    }
 }
 // this is called per cpu :)
 pub unsafe fn sched_init() {
@@ -114,7 +119,7 @@ pub unsafe fn sched_init() {
         .unwrap()
         .add(65536);
     let mut pp = Box::new(perthreadcpu {
-        kernal_stack_ptr: new_kstack,
+        kernal_stack_ptr: AtomicPtr::new(new_kstack),
         user_stack_ptr: None,
         run_queue: None,
         cur_thread: None,
@@ -125,7 +130,11 @@ pub fn create_kentry() {
     // on the buttstrap cpu
     let him = rdmsr(0xC0000101);
     let bro = core::ptr::with_exposed_provenance_mut(him as usize) as *mut perthreadcpu;
-    let new_ctx = cpu_ctx::new(lol as usize, false, unsafe { (*bro).kernal_stack_ptr });
+    let new_ctx = cpu_ctx::new(lol as usize, false, unsafe {
+        (*bro)
+            .kernal_stack_ptr
+            .load(core::sync::atomic::Ordering::SeqCst)
+    });
     let new_man = Thread::new("MY MAN", 0, 0, 0, new_ctx);
     unsafe {
         (*bro).run_queue = Some(Box::into_raw(Box::new(new_man)));
@@ -155,5 +164,44 @@ impl<'a> Thread<'a> {
 }
 #[no_mangle]
 pub fn schedule_task(regs: Registers) -> Option<Registers> {
-    return None;
+    if regs.cs == 0x40 | (3) {
+        panic!("usermode not ready lol");
+    } else {
+        let him = rdmsr(0xC0000101);
+        let bro = core::ptr::with_exposed_provenance_mut(him as usize) as *mut perthreadcpu;
+        unsafe {
+            if (*bro).cur_thread.is_some() {
+                // save our ctx :)
+                (*(*bro).cur_thread.unwrap()).content.frame = regs;
+                if (*(*bro).cur_thread.unwrap()).next.is_some() {
+                    ((*bro).cur_thread) = Some((*(*bro).cur_thread.unwrap()).next.unwrap());
+                } else {
+                    if (*bro).run_queue.is_some() {
+                        (*bro).cur_thread = Some((*bro).run_queue.unwrap())
+                    } else {
+                        return None;
+                    }
+                }
+            } else if (*bro).run_queue.is_some() {
+                (*bro).cur_thread = Some((*bro).run_queue.unwrap())
+            } else {
+                return None;
+            }
+            // switch our regs
+            let our = (*(*bro).cur_thread.unwrap()).content.frame;
+            if (*(*bro).cur_thread.unwrap()).process.is_some() {
+                (*(*bro).cur_thread.unwrap())
+                    .process
+                    .as_ref()
+                    .unwrap()
+                    .lock()
+                    .pagemap
+                    .switch_to();
+            }
+            if our.cs == 0x40 | (3) {
+                panic!("nope");
+            }
+            return Some(our);
+        }
+    }
 }

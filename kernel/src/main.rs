@@ -70,7 +70,18 @@ unsafe extern "C" fn kmain() -> ! {
 
     hcf();
 }
+#[cfg(miri)]
+#[no_mangle]
+fn miri_start(argc: isize, argv: *const *const u8) -> isize {
+    // Call the actual start function that your project implements, based on your target's conventions.
 
+    use NyauxKT::{idt::Registers, sched};
+    unsafe {
+        sched::sched_init();
+    };
+    sched::create_kentry();
+    argc
+}
 #[cfg_attr(not(test), panic_handler)]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     println!("{}", _info);

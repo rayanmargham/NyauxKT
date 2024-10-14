@@ -14,7 +14,7 @@ pub struct IOthingy {
 #[used]
 #[link_section = ".requests"]
 static rsdp: limine::request::RsdpRequest = RsdpRequest::new();
-struct KTUACPIAPI;
+struct KTUACPIAPI(i32);
 static mut o: i32 = 0;
 impl KernelApi for KTUACPIAPI {
     fn acquire_mutex(&self, mutex: uacpi::Handle, timeout: u16) -> bool {
@@ -286,9 +286,9 @@ impl KernelApi for KTUACPIAPI {
         Ok(())
     }
 }
+use alloc::sync::Arc;
 pub fn init_acpi() {
-    use alloc::sync::Arc;
-    uacpi::kernel_api::set_kernel_api(Arc::new(KTUACPIAPI));
+    uacpi::kernel_api::set_kernel_api(Arc::new(KTUACPIAPI(1)));
     let st = uacpi::init(
         PhysAddr::new(
             rsdp.get_response().unwrap().address() as u64

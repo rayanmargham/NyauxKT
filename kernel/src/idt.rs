@@ -53,9 +53,9 @@ extern "C" fn exception_handler(registers: u64) {
 extern "C" fn sched(registers: u64) -> usize {
     let got_registers =
         unsafe { &*(core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize)) };
+
     lapic::send_lapic_eoi(get_lapic_addr());
     if let Some(mut r) = schedule_task(*got_registers) {
-        println!("ye");
         return (&mut r as *mut Registers).addr();
     }
     return core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize).addr();
