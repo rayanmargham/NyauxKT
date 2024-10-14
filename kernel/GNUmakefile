@@ -18,7 +18,7 @@ endif
 # Default target.
 .PHONY: all
 all:
-	RUSTFLAGS="-C relocation-model=static" KERNEL=BLAH cargo build --target $(RUST_TARGET) --profile $(RUST_PROFILE)
+	RUSTFLAGS="-C relocation-model=static -Cforce-frame-pointers=yes" KERNEL=BLAH cargo build --target $(RUST_TARGET) --profile $(RUST_PROFILE)
 	cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/$$(cd target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR) && find -maxdepth 1 -perm -111 -type f) NyauxKT
 
 .PHONY: test

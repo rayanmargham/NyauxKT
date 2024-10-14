@@ -37,14 +37,17 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 #[link_section = ".requests_end_marker"]
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 extern crate alloc;
+use alloc::string::ToString;
 build_time!("%H:%M:%S on %A %Y-%m-%d");
 #[no_mangle]
 
-#[cfg(not(test))]
+// #[cfg(not(test))]
 
 unsafe extern "C" fn kmain() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
+
+    use NyauxKT::{elf::symbol, timers::init_timers};
     assert!(BASE_REVISION.is_supported());
 
     if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
@@ -58,9 +61,11 @@ unsafe extern "C" fn kmain() -> ! {
             pmm_init();
             
 
-            
+            symbol::load();
             vmm::PageMap::new_inital();
+            
             acpi::init_acpi();
+            init_timers().expect("Kernel does not have any timers, btw timer.rs wants to say hi");
         }
     }
 

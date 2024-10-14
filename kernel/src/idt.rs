@@ -1,6 +1,10 @@
 use core::ops::Deref;
 use core::arch::naked_asm;
+use alloc::string::{String, ToString};
 use spin::Mutex;
+
+use crate::elf::symbol::{self, symbol_table};
+use crate::println;
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct GateDescriptor {
@@ -27,10 +31,23 @@ impl GateDescriptor {
 }
 extern "C" fn exception_handler(registers: u64) {
     let got_registers = unsafe { &*(registers as *mut Registers) };
-    panic!(
-        "crash vec {:#x} \nwith register rip at {:#x}\nerror code {:#x} \ncr2 is {:#x}\nrflags {:#x} idiot",
-        got_registers.int, got_registers.rip, got_registers.error_code, read_cr2(), got_registers.rflags
-    );
+    println!("--Register Dump---\nCR2={:#x}    RFLAGS={:#x}\n--End Of Register Dump\n\n---Stack Trace---", read_cr2(), got_registers.rflags);
+    let mut base_pointer: *mut usize = core::ptr::with_exposed_provenance_mut::<usize>(got_registers.rip);
+    let n = "No Function :(".to_string();
+    let g = get_formatted_string_from_rip(base_pointer.addr()).unwrap_or((base_pointer.addr(), &n));
+    println!("call site: {:#x} -- function: {}", g.0, g.1);
+    base_pointer = base_pointer.with_addr(got_registers.rbp);
+    while !base_pointer.is_null() {
+        let addr = unsafe {
+            (*(base_pointer.offset(1)))
+        };
+        let n = "No Function :(".to_string();
+        let g = get_formatted_string_from_rip(addr).unwrap_or((addr, &n));
+        println!("call site: {:#x} -- function: {}", g.0, g.1);
+        base_pointer = unsafe {(*base_pointer) as *mut usize};
+    }
+    println!("---Stack Trace---");
+    panic!("oops");
 }
 pub fn read_cr2() -> usize {
     let val: usize;
@@ -39,6 +56,15 @@ pub fn read_cr2() -> usize {
         out(reg) val
     )};
     val
+}
+pub fn get_formatted_string_from_rip<'a>(rip: usize) -> Option<(usize, &'a String)>{
+    if let Some(sym) = symbol_table.get() {
+        let mut r = sym.range(..rip);
+        if let Some((idx, y)) = r.next_back() {
+            return Some((*idx, y));
+        }
+    }
+    None
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -55,13 +81,13 @@ pub struct Registers {
     pub r10: usize,
     pub r9: usize,
     pub r8: usize,
-    pub rbp: usize,
     pub rdi: usize,
     pub rsi: usize,
     pub rdx: usize,
     pub rcx: usize,
     pub rbx: usize,
     pub rax: usize,
+    pub rbp: usize,
 
     // Pushed by interrupt
     pub error_code: usize,
@@ -91,6 +117,12 @@ struct IDTR {
     size: u16,
     offset: u64,
 }
+#[macro_export]
+macro_rules! push_gprs {
+    () => {
+        "push rbp"
+    };
+}
 macro_rules! exception_function {
     ($code:expr, $handler:ident) => {
 
@@ -100,13 +132,14 @@ macro_rules! exception_function {
 
             unsafe {
                 naked_asm!(
+                    
+                    "push rbp",
                     "push rax",
                     "push rbx",
                     "push rcx",
                     "push rdx",
                     "push rsi",
                     "push rdi",
-                    "push rbp",
                     "push r8",
                     "push r9",
                     "push r10",
@@ -128,13 +161,13 @@ macro_rules! exception_function {
                     "pop r10",
                     "pop r9",
                     "pop r8",
-                    "pop rbp",
                     "pop rdi",
                     "pop rsi",
                     "pop rdx",
                     "pop rcx",
                     "pop rbx",
                     "pop rax",
+                    "pop rbp",
                     "add rsp, 8",
                     "iretq",
                     const $code,
@@ -157,14 +190,15 @@ macro_rules! exception_function_no_error {
 
             unsafe {
                 naked_asm!(
+                    
                     "push 0x0",
+                    "push rbp",
                     "push rax",
                     "push rbx",
                     "push rcx",
                     "push rdx",
                     "push rsi",
                     "push rdi",
-                    "push rbp",
                     "push r8",
                     "push r9",
                     "push r10",
@@ -173,7 +207,7 @@ macro_rules! exception_function_no_error {
                     "push r13",
                     "push r14",
                     "push r15",
-                    "push {0}",
+                    "push {0}\n",
                     "mov rdi, rsp",
                     "call {1}",
                     "add rsp, 8",
@@ -186,13 +220,13 @@ macro_rules! exception_function_no_error {
                     "pop r10",
                     "pop r9",
                     "pop r8",
-                    "pop rbp",
                     "pop rdi",
                     "pop rsi",
                     "pop rdx",
                     "pop rcx",
                     "pop rbx",
                     "pop rax",
+                    "pop rbp",
                     "add rsp, 8",
                     "iretq",
                     const $code,
@@ -215,19 +249,18 @@ macro_rules! exception_function_no_error_sched {
 
             unsafe {
                 naked_asm!(
-
                     "push 0x0",
                     "cmp qword ptr [rsp + 16], 0x43",
                     "jne 2f",
                     "swapgs",
                     "2:",
+                    "push rbp"
                     "push rax",
                     "push rbx",
                     "push rcx",
                     "push rdx",
                     "push rsi",
                     "push rdi",
-                    "push rbp",
                     "push r8",
                     "push r9",
                     "push r10",
@@ -250,14 +283,14 @@ macro_rules! exception_function_no_error_sched {
                     "pop r10",
                     "pop r9",
                     "pop r8",
-                    "pop rbp",
                     "pop rdi",
                     "pop rsi",
                     "pop rdx",
                     "pop rcx",
                     "pop rbx",
                     "pop rax",
-                    "add rsp, 8",
+                    "pop rbp",
+                    "add rsp, 8"
                     "cmp qword ptr [rsp + 16], 0x43",
                     "jne 3f",
                     "swapgs",
@@ -285,6 +318,8 @@ static IDTR: Mutex<IDTR> = Mutex::new(IDTR { offset: 0, size: 0 });
 pub struct InterruptManager {}
 impl InterruptManager {
     pub fn start_idt() {
+        let x =push_gprs!();
+
         idt_set_gate(0x00, div_error as usize);
         idt_set_gate(0x06, invalid_opcode as usize);
         idt_set_gate(0x08, double_fault as usize);

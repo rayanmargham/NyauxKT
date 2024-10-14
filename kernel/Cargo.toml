@@ -7,9 +7,12 @@ edition = "2021"
 bitflags = "2.6.0"
 build_timestamp = "0.1.0"
 flanterm_bindings = "1.1.4"
+hashbrown = "0.15.0"
 limine = "0.3.1"
 owo-colors = "4.1.0"
+rustc-demangle = "0.1.24"
 spin = "0.9.8"
 uacpi = {git = "https://github.com/Qwinci/uacpi-rs"}
+volatile = "0.6.1"
 [profile.release]
 debug = true
