@@ -21,6 +21,8 @@ pub mod elf;
 pub mod gdt;
 pub mod idt;
 pub mod mem;
+pub mod sched;
+pub mod smp;
 pub mod term;
 pub mod timers;
 pub fn hcf() -> ! {

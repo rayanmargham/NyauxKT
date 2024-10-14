@@ -1,8 +1,6 @@
 #![no_std]
 #![cfg_attr(not(test), no_main)]
 
-
-
 use core::arch::asm;
 use core::assert;
 use limine::request::{FramebufferRequest, RequestsEndMarker, RequestsStartMarker};
@@ -13,10 +11,11 @@ use NyauxKT::idt::InterruptManager;
 
 use NyauxKT::mem::pmm::pmm_init;
 use NyauxKT::mem::vmm;
+use NyauxKT::smp::bootstrap;
 use NyauxKT::{acpi, println};
 
-use NyauxKT::term::TERMGBL;
 use build_timestamp::build_time;
+use NyauxKT::term::TERMGBL;
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 /// Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -59,19 +58,18 @@ unsafe extern "C" fn kmain() -> ! {
             println!("Booting Kernel...");
             println!("Nyaux KT. Built at: {}", BUILD_TIME);
             pmm_init();
-            
 
             symbol::load();
             vmm::PageMap::new_inital();
-            
+
             acpi::init_acpi();
             init_timers().expect("Kernel does not have any timers, btw timer.rs wants to say hi");
+            bootstrap();
         }
     }
 
     hcf();
 }
-
 
 #[cfg_attr(not(test), panic_handler)]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {

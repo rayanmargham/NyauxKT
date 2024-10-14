@@ -12,13 +12,13 @@ fn read_lapic_register(lapic_addr: u64, reg: u64) -> u32 {
         return core::ptr::read_volatile((lapic_addr + reg) as *mut u32) as u32;
     }
 }
-fn send_lapic_eoi(lapic_addr: u64) {
+pub fn send_lapic_eoi(lapic_addr: u64) {
     unsafe { core::ptr::write_volatile((lapic_addr + 0xb0) as *mut u32, 0) };
 }
 fn read_lapic_id(lapic_addr: u64) -> u32 {
     unsafe { return core::ptr::read_volatile((lapic_addr + 0x20) as *mut u32) };
 }
-fn get_lapic_addr() -> u64 {
+pub fn get_lapic_addr() -> u64 {
     let addr = rdmsr(0x1b);
 
     return (addr & 0xfffff000) + HHDM.get_response().unwrap().offset();

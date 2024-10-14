@@ -1,10 +1,12 @@
-use core::ops::Deref;
-use core::arch::naked_asm;
 use alloc::string::{String, ToString};
+use core::arch::naked_asm;
+use core::ops::Deref;
 use spin::Mutex;
 
 use crate::elf::symbol::{self, symbol_table};
 use crate::println;
+use crate::sched::schedule_task;
+use crate::timers::lapic::{self, get_lapic_addr};
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct GateDescriptor {
@@ -32,32 +34,43 @@ impl GateDescriptor {
 extern "C" fn exception_handler(registers: u64) {
     let got_registers = unsafe { &*(registers as *mut Registers) };
     println!("--Register Dump---\nCR2={:#x}    RFLAGS={:#x}\n--End Of Register Dump\n\n---Stack Trace---", read_cr2(), got_registers.rflags);
-    let mut base_pointer: *mut usize = core::ptr::with_exposed_provenance_mut::<usize>(got_registers.rip);
+    let mut base_pointer: *mut usize =
+        core::ptr::with_exposed_provenance_mut::<usize>(got_registers.rip);
     let n = "No Function :(".to_string();
     let g = get_formatted_string_from_rip(base_pointer.addr()).unwrap_or((base_pointer.addr(), &n));
     println!("call site: {:#x} -- function: {}", g.0, g.1);
     base_pointer = base_pointer.with_addr(got_registers.rbp);
     while !base_pointer.is_null() {
-        let addr = unsafe {
-            (*(base_pointer.offset(1)))
-        };
+        let addr = unsafe { (*(base_pointer.offset(1))) };
         let n = "No Function :(".to_string();
         let g = get_formatted_string_from_rip(addr).unwrap_or((addr, &n));
         println!("call site: {:#x} -- function: {}", g.0, g.1);
-        base_pointer = unsafe {(*base_pointer) as *mut usize};
+        base_pointer = unsafe { (*base_pointer) as *mut usize };
     }
     println!("---Stack Trace---");
     panic!("oops");
 }
+extern "C" fn sched(registers: u64) -> usize {
+    let got_registers =
+        unsafe { &*(core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize)) };
+    lapic::send_lapic_eoi(get_lapic_addr());
+    if let Some(mut r) = schedule_task(*got_registers) {
+        println!("ye");
+        return (&mut r as *mut Registers).addr();
+    }
+    return core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize).addr();
+}
 pub fn read_cr2() -> usize {
     let val: usize;
-    unsafe {core::arch::asm!(
-        "mov {}, cr2",
-        out(reg) val
-    )};
+    unsafe {
+        core::arch::asm!(
+            "mov {}, cr2",
+            out(reg) val
+        )
+    };
     val
 }
-pub fn get_formatted_string_from_rip<'a>(rip: usize) -> Option<(usize, &'a String)>{
+pub fn get_formatted_string_from_rip<'a>(rip: usize) -> Option<(usize, &'a String)> {
     if let Some(sym) = symbol_table.get() {
         let mut r = sym.range(..rip);
         if let Some((idx, y)) = r.next_back() {
@@ -132,7 +145,7 @@ macro_rules! exception_function {
 
             unsafe {
                 naked_asm!(
-                    
+
                     "push rbp",
                     "push rax",
                     "push rbx",
@@ -190,7 +203,7 @@ macro_rules! exception_function_no_error {
 
             unsafe {
                 naked_asm!(
-                    
+
                     "push 0x0",
                     "push rbp",
                     "push rax",
@@ -254,7 +267,7 @@ macro_rules! exception_function_no_error_sched {
                     "jne 2f",
                     "swapgs",
                     "2:",
-                    "push rbp"
+                    "push rbp",
                     "push rax",
                     "push rbx",
                     "push rcx",
@@ -290,7 +303,7 @@ macro_rules! exception_function_no_error_sched {
                     "pop rbx",
                     "pop rax",
                     "pop rbp",
-                    "add rsp, 8"
+                    "add rsp, 8",
                     "cmp qword ptr [rsp + 16], 0x43",
                     "jne 3f",
                     "swapgs",
@@ -314,17 +327,19 @@ exception_function_no_error!(0x06, invalid_opcode, exception_handler);
 exception_function!(0x08, double_fault);
 exception_function!(0x0D, general_protection_fault);
 exception_function!(0x0E, page_fault);
+exception_function_no_error_sched!(34, schede, sched);
 static IDTR: Mutex<IDTR> = Mutex::new(IDTR { offset: 0, size: 0 });
 pub struct InterruptManager {}
 impl InterruptManager {
     pub fn start_idt() {
-        let x =push_gprs!();
+        let x = push_gprs!();
 
         idt_set_gate(0x00, div_error as usize);
         idt_set_gate(0x06, invalid_opcode as usize);
         idt_set_gate(0x08, double_fault as usize);
         idt_set_gate(0x0D, general_protection_fault as usize);
         idt_set_gate(0x0E, page_fault as usize);
+        idt_set_gate(34, schede as usize);
 
         // idt_set_gate(47, haha as usize);
         IDTR.lock().offset = IDT.lock().as_ptr() as u64;
@@ -341,4 +356,3 @@ impl InterruptManager {
         }
     }
 }
-
