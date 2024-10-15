@@ -163,8 +163,8 @@ impl<'a> Thread<'a> {
     }
 }
 #[no_mangle]
-pub fn schedule_task(regs: Registers) -> Option<Registers> {
-    if regs.cs == 0x40 | (3) {
+pub unsafe fn schedule_task(regs: *mut Registers) -> Option<*mut Registers> {
+    if (*regs).cs == 0x40 | (3) {
         panic!("usermode not ready lol");
     } else {
         let him = rdmsr(0xC0000101);
@@ -172,7 +172,7 @@ pub fn schedule_task(regs: Registers) -> Option<Registers> {
         unsafe {
             if (*bro).cur_thread.is_some() {
                 // save our ctx :)
-                (*(*bro).cur_thread.unwrap()).content.frame = regs;
+                (*(*bro).cur_thread.unwrap()).content.frame = (*regs);
                 if (*(*bro).cur_thread.unwrap()).next.is_some() {
                     ((*bro).cur_thread) = Some((*(*bro).cur_thread.unwrap()).next.unwrap());
                 } else {
@@ -189,6 +189,7 @@ pub fn schedule_task(regs: Registers) -> Option<Registers> {
             }
             // switch our regs
             let our = (*(*bro).cur_thread.unwrap()).content.frame;
+            (*regs) = our;
             if (*(*bro).cur_thread.unwrap()).process.is_some() {
                 (*(*bro).cur_thread.unwrap())
                     .process
@@ -201,7 +202,7 @@ pub fn schedule_task(regs: Registers) -> Option<Registers> {
             if our.cs == 0x40 | (3) {
                 panic!("nope");
             }
-            return Some(our);
+            return Some(regs);
         }
     }
 }

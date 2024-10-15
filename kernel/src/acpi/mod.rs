@@ -1,3 +1,4 @@
+use core::clone;
 use core::{alloc::Layout, ffi::c_void, fmt};
 
 use limine::request::RsdpRequest;
@@ -15,7 +16,13 @@ pub struct IOthingy {
 #[link_section = ".requests"]
 static rsdp: limine::request::RsdpRequest = RsdpRequest::new();
 struct KTUACPIAPI(i32);
+static glob: KTUACPIAPI = KTUACPIAPI(1);
 static mut o: i32 = 0;
+impl Clone for KTUACPIAPI {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
 impl KernelApi for KTUACPIAPI {
     fn acquire_mutex(&self, mutex: uacpi::Handle, timeout: u16) -> bool {
         true
@@ -288,7 +295,7 @@ impl KernelApi for KTUACPIAPI {
 }
 use alloc::sync::Arc;
 pub fn init_acpi() {
-    uacpi::kernel_api::set_kernel_api(Arc::new(KTUACPIAPI(1)));
+    uacpi::kernel_api::set_kernel_api(Arc::new(glob.clone()));
     let st = uacpi::init(
         PhysAddr::new(
             rsdp.get_response().unwrap().address() as u64

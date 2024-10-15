@@ -56,11 +56,14 @@ extern "C" fn sched(registers: u64) -> usize {
         unsafe { &*(core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize)) };
 
     lapic::send_lapic_eoi(get_lapic_addr());
-    if let Some(mut r) = schedule_task(*got_registers) {
-        return (&mut r as *mut Registers).addr();
+    if let Some(mut r) = unsafe {
+        schedule_task(core::ptr::with_exposed_provenance_mut::<Registers>(
+            registers as usize,
+        ))
+    } {
+        return r.expose_provenance();
     }
-    return core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize)
-        .expose_provenance();
+    return registers as usize;
 }
 pub fn read_cr2() -> usize {
     let val: usize;
