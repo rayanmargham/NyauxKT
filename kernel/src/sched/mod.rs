@@ -59,7 +59,7 @@ impl cpu_ctx {
                 cs: 0x40 | (3),
                 ss: 0x38 | (3),
                 rflags: 0x202,
-                rsp: rsp.addr(),
+                rsp: rsp.expose_provenance(),
             };
             Self { frame: o }
         } else {
@@ -85,7 +85,7 @@ impl cpu_ctx {
                 cs: 0x28,
                 ss: 0x30,
                 rflags: 0x202,
-                rsp: rsp.addr(),
+                rsp: rsp.expose_provenance(),
             };
             Self { frame: o }
         }
@@ -124,7 +124,7 @@ pub unsafe fn sched_init() {
         run_queue: None,
         cur_thread: None,
     });
-    wrmsr(0xC0000101, Box::into_raw(pp).addr() as u64);
+    wrmsr(0xC0000101, Box::into_raw(pp).expose_provenance() as u64);
 }
 pub fn create_kentry() {
     // on the buttstrap cpu

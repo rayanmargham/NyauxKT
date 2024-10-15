@@ -10,7 +10,11 @@ use spin::Mutex;
 
 use crate::{
     hcf,
-    mem::{align_down, align_up, pmm::{cache, pmm_dealloc}, MEMMAP},
+    mem::{
+        align_down, align_up,
+        pmm::{cache, pmm_dealloc},
+        MEMMAP,
+    },
     println, List, VList,
 };
 bitflags! {
@@ -37,7 +41,7 @@ pub struct VMMRegion {
     base: usize,
     length: usize,
     flags: VMMFlags,
-    iskernel: bool
+    iskernel: bool,
 }
 impl fmt::Debug for VMMRegion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -49,11 +53,10 @@ impl fmt::Debug for VMMRegion {
     }
 }
 
-
 #[derive(Debug)]
 pub struct PageMap {
     head: VList<VMMRegion>,
-    rootpagetable: *mut usize
+    rootpagetable: *mut usize,
 }
 #[macro_export]
 macro_rules! unwrap_or_return {
@@ -67,9 +70,7 @@ macro_rules! unwrap_or_return {
 #[test]
 fn t() {
     let ok: List<VMMRegion> = List::new::<VMMRegion>();
-    for i in ok.iter() {
-
-    }
+    for i in ok.iter() {}
 }
 #[macro_export]
 macro_rules! unwrap_or_return0 {
@@ -243,7 +244,6 @@ impl PageMap {
                     .write_bytes(0, 4096);
                 data as *mut usize
             },
-            
         };
         println!("done");
         let size_pages = unsafe { align_up(&THE_REAL as *const _ as usize, 4096) / 4096 };
@@ -321,7 +321,6 @@ impl PageMap {
         q.switch_to();
         q.region_setup(hhdm_pages);
 
-        
         *KERMAP.lock() = Some(q);
 
         println!("vmm inited");
@@ -361,17 +360,16 @@ impl PageMap {
             base: ADDR.get_response().unwrap().virtual_base() as usize,
             length: unsafe { align_up(&THE_REAL as *const _ as usize, 4096) },
             flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
-            iskernel: true
+            iskernel: true,
         };
         let HHDMM = VMMRegion {
             base: HHDM.get_response().unwrap().offset() as usize,
             length: align_up(pages_in_hhdm * 0x1000, 4096),
             flags: VMMFlags::KTPRESENT | VMMFlags::KTWRITEALLOWED,
-            iskernel: false
+            iskernel: false,
         };
         self.head.push(ITSHIM);
         self.head.push(HHDMM);
-        
     }
     pub fn vmm_region_alloc(&mut self, size: usize, flags: VMMFlags) -> Option<*mut u8> {
         let mut store: Option<&mut VMMRegion> = None;
@@ -381,44 +379,44 @@ impl PageMap {
                 continue;
             }
             let temp = store.unwrap();
-            
-            if i.base.wrapping_sub(temp.base + temp.length) >= align_up(size as usize, 4096) as usize + 0x1000 {
+
+            if i.base.wrapping_sub(temp.base + temp.length)
+                >= align_up(size as usize, 4096) as usize + 0x1000
+            {
                 let new_guy = VMMRegion {
-                                base: temp.base + temp.length,
-                                length: align_up(size, 4096),
-                                flags,
-                                iskernel: false
-                            };
-                           
-                            let amou = align_up(size as usize, 4096) / 4096;
-                            for i in 0..amou {
-                                let data = {
-                                    let o = pmm_alloc().unwrap() as *mut u8;
-                                    unsafe {
-                                        o.add(HHDM.get_response().unwrap().offset() as usize)
-                                            .write_bytes(0, 4096);
-                                    }
-                                    o
-                                };
-                                self.map(
-                                    data.addr(),
-                                    new_guy.base + (i * 0x1000),
-                                    new_guy.flags.bits(),
-                                );
-                            }
-                            let h = 0 as *mut u8;
-                            unsafe {h.with_addr(new_guy.base).write_bytes(0, new_guy.length)};
-                            let n = new_guy.base;
-                            
-                            self.head.push(new_guy);
-                            
-                            return Some(h.with_addr(n) as *mut u8);
-                            
-            }else {
-                                        store = Some(i);
-                                        continue;
-                                    }
-            
+                    base: temp.base + temp.length,
+                    length: align_up(size, 4096),
+                    flags,
+                    iskernel: false,
+                };
+
+                let amou = align_up(size as usize, 4096) / 4096;
+                for i in 0..amou {
+                    let data = {
+                        let o = pmm_alloc().unwrap() as *mut u8;
+                        unsafe {
+                            o.add(HHDM.get_response().unwrap().offset() as usize)
+                                .write_bytes(0, 4096);
+                        }
+                        o
+                    };
+                    self.map(
+                        data.expose_provenance(),
+                        new_guy.base + (i * 0x1000),
+                        new_guy.flags.bits(),
+                    );
+                }
+                let h = 0 as *mut u8;
+                unsafe { h.with_addr(new_guy.base).write_bytes(0, new_guy.length) };
+                let n = new_guy.base;
+
+                self.head.push(new_guy);
+
+                return Some(h.with_addr(n) as *mut u8);
+            } else {
+                store = Some(i);
+                continue;
+            }
         }
         panic!("no space");
         // let mut store = None;
@@ -479,9 +477,8 @@ impl PageMap {
                 continue;
             }
             let temp = store.as_mut().unwrap();
-            if i.base == addr.addr(){
+            if i.base == addr.expose_provenance() {
                 // let ok = self.head.peek_raw().expect("This is not Possible...");
-                
             }
         }
         // let mut idxx = -1;

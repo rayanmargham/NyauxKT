@@ -75,11 +75,12 @@ unsafe extern "C" fn kmain() -> ! {
 fn miri_start(argc: isize, argv: *const *const u8) -> isize {
     // Call the actual start function that your project implements, based on your target's conventions.
 
-    use NyauxKT::{idt::Registers, sched};
-    unsafe {
-        sched::sched_init();
+    use NyauxKT::{
+        idt::Registers,
+        sched::{self, create_kentry, sched_init, schedule_task},
     };
-    sched::create_kentry();
+
+    unsafe { kmain() }
     argc
 }
 #[cfg_attr(not(test), panic_handler)]

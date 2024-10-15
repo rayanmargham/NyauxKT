@@ -37,7 +37,8 @@ extern "C" fn exception_handler(registers: u64) {
     let mut base_pointer: *mut usize =
         core::ptr::with_exposed_provenance_mut::<usize>(got_registers.rip);
     let n = "No Function :(".to_string();
-    let g = get_formatted_string_from_rip(base_pointer.addr()).unwrap_or((base_pointer.addr(), &n));
+    let g = get_formatted_string_from_rip(base_pointer.expose_provenance())
+        .unwrap_or((base_pointer.addr(), &n));
     println!("call site: {:#x} -- function: {}", g.0, g.1);
     base_pointer = base_pointer.with_addr(got_registers.rbp);
     while !base_pointer.is_null() {
@@ -58,7 +59,8 @@ extern "C" fn sched(registers: u64) -> usize {
     if let Some(mut r) = schedule_task(*got_registers) {
         return (&mut r as *mut Registers).addr();
     }
-    return core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize).addr();
+    return core::ptr::with_exposed_provenance_mut::<Registers>(registers as usize)
+        .expose_provenance();
 }
 pub fn read_cr2() -> usize {
     let val: usize;
