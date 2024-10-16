@@ -12,7 +12,7 @@ endif
 
 override RUST_PROFILE_SUBDIR := $(RUST_PROFILE)
 ifeq ($(RUST_PROFILE),dev)
-    override RUST_PROFILE_SUBDIR := debug
+    override RUST_PROFILE_SUBDIR := dev
 endif
 
 # Default target.

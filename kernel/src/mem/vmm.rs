@@ -406,13 +406,12 @@ impl PageMap {
                         new_guy.flags.bits(),
                     );
                 }
-                let h = 0 as *mut u8;
-                unsafe { h.with_addr(new_guy.base).write_bytes(0, new_guy.length) };
-                let n = new_guy.base;
+                let h = core::ptr::with_exposed_provenance_mut::<u8>(new_guy.base);
+                unsafe { h.write_bytes(0, new_guy.length) };
 
                 self.head.push(new_guy);
 
-                return Some(h.with_addr(n) as *mut u8);
+                return Some(h);
             } else {
                 store = Some(i);
                 continue;

@@ -2,15 +2,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
-            "request": "custom",
+            "type": "gdb",
+            "request": "attach",
             "name": "Debug x86_64",
-            "targetCreateCommands": [
-                "target create ${workspaceFolder}/kernel/NyauxKT"
-            ],
-            "processCreateCommands": [
-                "gdb-remote localhost:1234"
-            ]
+            "executable": "NyauxKT",
+            "remote": true,
+            "cwd": "${workspaceRoot}/kernel",
+            "gdbpath": "gdb",
+            "valuesFormatting": "prettyPrinters",
+            "target": "localhost:1234"
         }
     ]
 }

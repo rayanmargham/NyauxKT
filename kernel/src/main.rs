@@ -55,6 +55,7 @@ unsafe extern "C" fn kmain() -> ! {
 
             InterruptManager::start_idt();
             TERMGBL.lock().init(&framebuffer);
+
             println!("Booting Kernel...");
             println!("Nyaux KT. Built at: {}", BUILD_TIME);
             pmm_init();
