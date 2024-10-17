@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(naked_functions)]
 #![feature(exposed_provenance)]
+#![feature(ptr_mask)]
 // THIS IS FINE CAUSE I STAND BY NON CAMAL CASE
 // ALSO CLEARS UP WARNINGS SO I CAN SEE ACTUAL IMPORTANT WARNINGS
 #![allow(

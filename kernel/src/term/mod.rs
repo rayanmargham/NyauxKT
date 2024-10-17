@@ -77,7 +77,7 @@ impl<'a> Terminal<'a> {
 pub static TERMGBL: Mutex<Terminal> = Mutex::new(Terminal::new());
 impl<'a> fmt::Write for Terminal<'a> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.write_string(s);
+        // self.write_string(s);
         for i in s.chars() {
             unsafe {
                 core::arch::asm!("out dx, al", in("al") i as u8, in("dx") 0x3F8 as u16, options(nomem, nostack, preserves_flags));

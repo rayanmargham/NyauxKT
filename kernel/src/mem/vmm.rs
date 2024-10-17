@@ -7,6 +7,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use spin::Mutex;
+use volatile::VolatilePtr;
 
 use crate::{
     hcf,
@@ -90,130 +91,156 @@ extern "C" {
     static THE_REAL: u8;
 }
 pub static KERMAP: Mutex<Option<PageMap>> = Mutex::new(None);
-unsafe fn virt<T>(addr: usize) -> *mut T {
-    (HHDM.get_response().unwrap().offset() as usize + addr) as *mut T
+unsafe fn virt<T>(addr: *mut u8) -> *mut T {
+    addr.add(HHDM.get_response().unwrap().offset() as usize)
+        .cast::<T>()
 }
 impl PageMap {
-    fn find_pte_and_allocate(mut pt: usize, va: usize) -> &'static mut usize {
+    unsafe fn find_pte_and_allocate(mut pt: *mut usize, va: usize) -> *mut usize {
         let mut shift = 48;
         for i in 0..4 {
             shift -= 9;
             let idx = (va >> shift) & 0x1ff;
-            let ptab: &mut [usize; 512] = unsafe { &mut *virt(pt) };
+            let ptab = virt::<usize>(pt.cast::<u8>());
+
             if i == 3 {
-                return &mut ptab[idx] as &mut usize;
+                return ptab.add(idx);
             }
-            let entry = ptab[idx];
-            if entry & VMMFlags::KTPRESENT.bits() == 0 {
-                let new_pt = pmm_alloc().unwrap();
-                let (reference, other) = unsafe {
-                    let o = new_pt as *mut u8;
+            let entry = ptab.add(idx);
+            if entry.read_volatile() & VMMFlags::KTPRESENT.bits() == 0 {
+                let new_pt = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
+                let (reference, other) = {
+                    let o = new_pt;
                     o.add(HHDM.get_response().unwrap().offset() as usize)
                         .write_bytes(0, 4096);
-                    let j = o as *mut usize;
-                    (&mut *j, o)
+                    let j = o.cast::<usize>();
+                    (j, o)
                 };
-                ptab[idx] =
-                    other as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits();
-                pt = other as usize;
+
+                ptab.add(idx).write(
+                    reference
+                        .mask(VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits())
+                        .addr(),
+                );
+
+                pt = reference;
             } else {
-                pt = entry & 0x000f_ffff_ffff_f000;
+                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
             }
         }
-        unreachable!()
+        unreachable!();
+        todo!()
     }
-    fn find_pte_and_allocate2mb(mut pt: usize, va: usize) -> &'static mut usize {
+    unsafe fn find_pte_and_allocate2mb(mut pt: *mut usize, va: usize) -> *mut usize {
         let mut shift = 48;
         for i in 0..4 {
             shift -= 9;
             let idx = (va >> shift) & 0x1ff;
-            let ptab: &mut [usize; 512] = unsafe { &mut *virt(pt) };
+            let ptab = virt::<usize>(pt.cast::<u8>());
             if i == 2 {
-                return &mut ptab[idx] as &mut usize;
+                return ptab.add(idx);
             }
-            let entry = ptab[idx];
-            if entry & VMMFlags::KTPRESENT.bits() == 0 {
-                let new_pt = pmm_alloc().unwrap();
-                let (reference, other) = unsafe {
-                    let o = new_pt as *mut u8;
+            let entry = ptab.add(idx);
+            if entry.read_volatile() & VMMFlags::KTPRESENT.bits() == 0 {
+                let new_pt = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
+                let (reference, other) = {
+                    let o = new_pt;
                     o.add(HHDM.get_response().unwrap().offset() as usize)
                         .write_bytes(0, 4096);
-                    let j = o as *mut usize;
-                    (&mut *j, o)
+                    let j = o.cast::<usize>();
+                    (j, o)
                 };
-                ptab[idx] =
-                    other as usize | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits();
-                pt = other as usize;
-            } else if entry & VMMFlags::KT2MB.bits() == 1 && i == 2 {
-                let data = pmm_alloc().unwrap();
-                unsafe {
-                    (data as *mut u8)
-                        .add(HHDM.get_response().unwrap().offset() as usize)
-                        .write_bytes(0, 4096);
-                }
-                let g: &mut [usize; 512] = unsafe { &mut *(virt(data)) };
-                let old_phys = entry & 0x000f_ffff_ffff_f000;
-                let old_flags = entry & !0x000f_ffff_ffff_f000;
+
+                ptab.add(idx).write(
+                    reference
+                        .mask(VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits())
+                        .addr(),
+                );
+
+                pt = reference;
+            } else if entry.read_volatile() & VMMFlags::KT2MB.bits() == 1 && i == 2 {
+                let data = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
+                data.add(HHDM.get_response().unwrap().offset() as usize)
+                    .write_bytes(0, 4096);
+                let g: *mut usize = data
+                    .add(HHDM.get_response().unwrap().offset() as usize)
+                    .cast::<usize>();
+                let old_phys = entry
+                    .map_addr(|a| a & 0x000f_ffff_ffff_f000)
+                    .read_volatile();
+                let old_flags = entry
+                    .map_addr(|a| a & !0x000f_ffff_ffff_f000)
+                    .read_volatile();
                 for i in 0..512 {
-                    g[i] = old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits())
+                    g.add(idx).write_volatile(
+                        old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits()),
+                    );
                 }
-                pt = data;
+                pt = data.cast::<usize>();
             } else {
-                pt = entry & 0x000f_ffff_ffff_f000;
+                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
             }
         }
-        unreachable!()
+        unreachable!();
+        todo!()
     }
-    fn find_pte(mut pt: usize, va: usize) -> Option<&'static mut usize> {
+    unsafe fn find_pte(mut pt: *mut usize, va: usize) -> Option<*mut usize> {
         let mut shift = 48;
         for i in 0..4 {
             shift -= 9;
             let idx = (va >> shift) & 0x1ff;
-            let ptab: &mut [usize; 512] = unsafe { &mut *virt(pt) };
+            let ptab = virt::<usize>(pt.cast::<u8>());
             if i == 3 {
-                if ptab[idx] == 0 {
+                if ptab.add(idx).read_volatile() == 0 {
                     return None;
                 }
-                return Some(&mut ptab[idx] as &mut usize);
+                return Some(ptab.add(idx));
             }
-            let entry = ptab[idx];
-            if entry & VMMFlags::KTPRESENT.bits() == 0 {
+            let entry = ptab.add(idx);
+            if entry.read_volatile() & VMMFlags::KTPRESENT.bits() == 0 {
                 return None;
-            } else if entry & VMMFlags::KT2MB.bits() == 1 && i == 2 {
-                let data = pmm_alloc().unwrap();
-                unsafe {
-                    (data as *mut u8)
-                        .add(HHDM.get_response().unwrap().offset() as usize)
-                        .write_bytes(0, 4096);
-                }
-                let g: &mut [usize; 512] = unsafe { &mut *(virt(data)) };
-                let old_phys = entry & 0x000f_ffff_ffff_f000;
-                let old_flags = entry & !0x000f_ffff_ffff_f000;
+            } else if entry.read_volatile() & VMMFlags::KT2MB.bits() == 1 && i == 2 {
+                let data = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
+                data.add(HHDM.get_response().unwrap().offset() as usize)
+                    .write_bytes(0, 4096);
+                let g: *mut usize = data
+                    .add(HHDM.get_response().unwrap().offset() as usize)
+                    .cast::<usize>();
+                let old_phys = entry
+                    .map_addr(|a| a & 0x000f_ffff_ffff_f000)
+                    .read_volatile();
+                let old_flags = entry
+                    .map_addr(|a| a & !0x000f_ffff_ffff_f000)
+                    .read_volatile();
                 for i in 0..512 {
-                    g[i] = old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits())
+                    g.add(idx).write_volatile(
+                        old_phys + i * 4096 | (old_flags & !VMMFlags::KT2MB.bits()),
+                    );
                 }
-                pt = data;
+                pt = data.cast::<usize>();
             } else {
-                pt = entry & 0x000f_ffff_ffff_f000;
+                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
             }
         }
-        unreachable!()
+        // unreachable!()
+        todo!()
     }
 
     pub fn map(&self, pt: usize, va: usize, flags: usize) {
-        let him = Self::find_pte_and_allocate(self.rootpagetable as usize, va);
+        let him = unsafe { Self::find_pte_and_allocate(self.rootpagetable, va) };
 
-        *him = pt | flags;
+        unsafe { him.write_volatile(pt | flags) };
     }
     pub fn map2mb(&self, pt: usize, va: usize, flags: usize) {
-        let him = Self::find_pte_and_allocate2mb(self.rootpagetable as usize, va & !0x1fffff_usize);
+        let him =
+            unsafe { Self::find_pte_and_allocate2mb(self.rootpagetable, va & !0x1fffff_usize) };
 
-        *him = (pt & !0x1fffff_usize) | flags | VMMFlags::KT2MB.bits();
+        unsafe { him.write_volatile(pt & !0x1fffff_usize | flags | VMMFlags::KT2MB.bits()) };
     }
     pub fn unmap(&self, va: usize) {
-        let him = Self::find_pte(self.rootpagetable as usize, va);
+        let him = unsafe { Self::find_pte(self.rootpagetable, va) };
         if let Some(h) = him {
-            *h = 0;
+            unsafe { h.write_volatile(0) };
 
             unsafe {
                 core::arch::asm!(
@@ -226,10 +253,10 @@ impl PageMap {
             println!("not found");
         }
     }
-    pub fn virt_to_phys(&self, va: usize) -> Option<usize> {
-        let him = Self::find_pte(self.rootpagetable as usize, va);
+    pub fn virt_to_phys(&self, va: usize) -> Option<*mut usize> {
+        let him = unsafe { Self::find_pte(self.rootpagetable, va) };
         if let Some(h) = him {
-            return Some(*h & 0x0007FFFFFFFFF000);
+            return Some(h.map_addr(|a| a & 0x0007FFFFFFFFF000));
         } else {
             None
         }
@@ -238,11 +265,11 @@ impl PageMap {
         let mut q = PageMap {
             head: VList::new::<VMMRegion>(cache::init(size_of::<VMMRegion>().next_power_of_two())),
             rootpagetable: unsafe {
-                let data = pmm_alloc().unwrap();
+                let data = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
                 (data as *mut u8)
                     .add(HHDM.get_response().unwrap().offset() as usize)
                     .write_bytes(0, 4096);
-                data as *mut usize
+                data.cast::<usize>()
             },
         };
         println!("done");
@@ -389,7 +416,7 @@ impl PageMap {
                     flags,
                     iskernel: false,
                 };
-
+                println!("called, doing address: {:#x}", new_guy.base);
                 let amou = align_up(size as usize, 4096) / 4096;
                 for i in 0..amou {
                     let data = {
@@ -398,6 +425,14 @@ impl PageMap {
                             o.add(HHDM.get_response().unwrap().offset() as usize)
                                 .write_bytes(0, 4096);
                         }
+                        println!(
+                            "data: phys: {:#x} virt: {:#x}",
+                            o.expose_provenance(),
+                            unsafe {
+                                o.add(HHDM.get_response().unwrap().offset() as usize)
+                                    .expose_provenance()
+                            }
+                        );
                         o
                     };
                     self.map(
@@ -406,6 +441,7 @@ impl PageMap {
                         new_guy.flags.bits(),
                     );
                 }
+                println!("done");
                 let h = core::ptr::with_exposed_provenance_mut::<u8>(new_guy.base);
                 unsafe { h.write_bytes(0, new_guy.length) };
 
