@@ -7,12 +7,12 @@ ifeq ($(RUST_TARGET),)
 endif
 
 ifeq ($(RUST_PROFILE),)
-    override RUST_PROFILE := release
+    override RUST_PROFILE := dev
 endif
 
 override RUST_PROFILE_SUBDIR := $(RUST_PROFILE)
 ifeq ($(RUST_PROFILE),dev)
-    override RUST_PROFILE_SUBDIR := dev
+    override RUST_PROFILE_SUBDIR := release
 endif
 
 # Default target.

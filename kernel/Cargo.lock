@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "uacpi"
 version = "0.1.0"
-source = "git+https://github.com/Qwinci/uacpi-rs#853853e5ccc41361cb9b6858c9b35313bf6e12ec"
+source = "git+https://github.com/Shinribo/uacpi-rs#fe785705b0c17788928febbf42d58cbca7c6af9b"
 dependencies = [
  "log",
  "uacpi-sys",
@@ -386,7 +386,7 @@ dependencies = [
 [[package]]
 name = "uacpi-sys"
 version = "0.1.0"
-source = "git+https://github.com/Qwinci/uacpi-rs#853853e5ccc41361cb9b6858c9b35313bf6e12ec"
+source = "git+https://github.com/Shinribo/uacpi-rs#fe785705b0c17788928febbf42d58cbca7c6af9b"
 dependencies = [
  "bindgen",
  "cc",

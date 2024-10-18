@@ -119,13 +119,15 @@ impl PageMap {
 
                 ptab.add(idx).write(
                     reference
-                        .mask(VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits())
+                        .map_addr(|a| {
+                            a | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits()
+                        })
                         .addr(),
                 );
 
                 pt = reference;
             } else {
-                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
+                pt = entry.with_addr(entry.read_volatile() & 0x000f_ffff_ffff_f000);
             }
         }
         unreachable!();
@@ -153,7 +155,9 @@ impl PageMap {
 
                 ptab.add(idx).write(
                     reference
-                        .mask(VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits())
+                        .map_addr(|a| {
+                            a | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits()
+                        })
                         .addr(),
                 );
 
@@ -178,7 +182,7 @@ impl PageMap {
                 }
                 pt = data.cast::<usize>();
             } else {
-                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
+                pt = entry.with_addr(entry.read_volatile() & 0x000f_ffff_ffff_f000);
             }
         }
         unreachable!();
@@ -219,7 +223,7 @@ impl PageMap {
                 }
                 pt = data.cast::<usize>();
             } else {
-                pt = entry.map_addr(|a| a & 0x000f_ffff_ffff_f000);
+                pt = entry.with_addr(entry.read_volatile() & 0x000f_ffff_ffff_f000);
             }
         }
         // unreachable!()
@@ -345,6 +349,7 @@ impl PageMap {
             }
         }
         println!("{:#x}", q.rootpagetable as usize);
+
         q.switch_to();
         q.region_setup(hhdm_pages);
 
@@ -416,7 +421,7 @@ impl PageMap {
                     flags,
                     iskernel: false,
                 };
-                println!("called, doing address: {:#x}", new_guy.base);
+
                 let amou = align_up(size as usize, 4096) / 4096;
                 for i in 0..amou {
                     let data = {
@@ -425,14 +430,7 @@ impl PageMap {
                             o.add(HHDM.get_response().unwrap().offset() as usize)
                                 .write_bytes(0, 4096);
                         }
-                        println!(
-                            "data: phys: {:#x} virt: {:#x}",
-                            o.expose_provenance(),
-                            unsafe {
-                                o.add(HHDM.get_response().unwrap().offset() as usize)
-                                    .expose_provenance()
-                            }
-                        );
+
                         o
                     };
                     self.map(
@@ -441,7 +439,7 @@ impl PageMap {
                         new_guy.flags.bits(),
                     );
                 }
-                println!("done");
+
                 let h = core::ptr::with_exposed_provenance_mut::<u8>(new_guy.base);
                 unsafe { h.write_bytes(0, new_guy.length) };
 

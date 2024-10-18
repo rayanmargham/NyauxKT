@@ -62,6 +62,7 @@ unsafe extern "C" fn kmain() -> ! {
 
             symbol::load();
             vmm::PageMap::new_inital();
+            println!("done");
 
             acpi::init_acpi();
             init_timers().expect("Kernel does not have any timers, btw timer.rs wants to say hi");

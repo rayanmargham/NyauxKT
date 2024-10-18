@@ -295,7 +295,9 @@ impl KernelApi for KTUACPIAPI {
 }
 use alloc::sync::Arc;
 pub fn init_acpi() {
+    println!("doing this");
     uacpi::kernel_api::set_kernel_api(Arc::new(glob.clone()));
+    println!("okay");
     let st = uacpi::init(
         PhysAddr::new(
             rsdp.get_response().unwrap().address() as u64
@@ -304,8 +306,11 @@ pub fn init_acpi() {
         LogLevel::INFO,
         false,
     );
+    println!("done");
     st.unwrap();
+    println!("now you");
     let st = uacpi::namespace_load();
+    println!("fuck");
     st.unwrap();
     let st = uacpi::namespace_initialize();
     println!("Succeded !");
