@@ -329,7 +329,7 @@ macro_rules! exception_function_no_error_sched {
     };
 }
 exception_function_no_error!(0x00, div_error, exception_handler);
-exception_function_no_error!(0x06, invalid_opcode, exception_handler);
+exception_function_no_error!(6, invalid_opcode, exception_handler);
 exception_function!(0x08, double_fault);
 exception_function!(0x0D, general_protection_fault);
 exception_function!(0x0E, page_fault);
@@ -341,7 +341,7 @@ impl InterruptManager {
         let x = push_gprs!();
 
         idt_set_gate(0x00, div_error as usize);
-        idt_set_gate(0x06, invalid_opcode as usize);
+        idt_set_gate(6, invalid_opcode as usize);
         idt_set_gate(0x08, double_fault as usize);
         idt_set_gate(0x0D, general_protection_fault as usize);
         idt_set_gate(0x0E, page_fault as usize);
