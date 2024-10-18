@@ -434,7 +434,7 @@ impl PageMap {
                         o
                     };
                     self.map(
-                        data.expose_provenance(),
+                        data.addr(),
                         new_guy.base + (i * 0x1000),
                         new_guy.flags.bits(),
                     );
