@@ -122,7 +122,7 @@ impl PageMap {
                         .map_addr(|a| {
                             a | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits()
                         })
-                        .addr(),
+                        .expose_provenance(),
                 );
 
                 pt = reference;
@@ -158,7 +158,7 @@ impl PageMap {
                         .map_addr(|a| {
                             a | VMMFlags::KTPRESENT.bits() | VMMFlags::KTWRITEALLOWED.bits()
                         })
-                        .addr(),
+                        .expose_provenance(),
                 );
 
                 pt = reference;
@@ -425,7 +425,7 @@ impl PageMap {
                 let amou = align_up(size as usize, 4096) / 4096;
                 for i in 0..amou {
                     let data = {
-                        let o = pmm_alloc().unwrap() as *mut u8;
+                        let o = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
                         unsafe {
                             o.add(HHDM.get_response().unwrap().offset() as usize)
                                 .write_bytes(0, 4096);
@@ -434,7 +434,7 @@ impl PageMap {
                         o
                     };
                     self.map(
-                        data.addr(),
+                        data.expose_provenance(),
                         new_guy.base + (i * 0x1000),
                         new_guy.flags.bits(),
                     );

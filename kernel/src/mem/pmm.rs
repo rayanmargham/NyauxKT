@@ -116,14 +116,19 @@ pub fn pmm_init() {
     let o = hhh.get_response_mut().unwrap().entries();
     let mut last = None;
     let jk = HHDM.get_response().unwrap().offset();
+    println!("h: {:#x}", jk);
     for entry in o
         .iter()
         .filter(|x| x.entry_type == limine::memory_map::EntryType::USABLE)
     {
-        let amount = align_up(entry.length as usize, 4096);
+        let amount = entry.length;
         for i in (0..amount).step_by(4096) {
-            let node = unsafe {
-                NonNull::new((entry.base as usize + (i) + jk as usize) as *mut KTNode).unwrap()
+            let node = {
+                NonNull::new(unsafe {
+                    core::ptr::with_exposed_provenance_mut::<KTNode>(entry.base as usize)
+                        .byte_add(i as usize + jk as usize)
+                })
+                .unwrap()
             };
             unsafe {
                 (*node.as_ptr()).next = last;
@@ -148,8 +153,10 @@ pub fn pmm_alloc() -> Option<usize> {
     let head = mutd.next.unwrap();
     unsafe {
         let next_node = (*head.as_ptr()).next.expect("Out of Memory");
-        let it = (head.as_ptr() as *mut KTNode)
-            .sub(HHDM.get_response().unwrap().offset() as usize / size_of::<KTNode>())
+        let it = head
+            .as_ptr()
+            .cast::<u8>()
+            .sub(HHDM.get_response().unwrap().offset() as usize)
             .expose_provenance();
         FREEPAGES.fetch_sub(1, Ordering::SeqCst);
         mutd.next = Some(next_node);
@@ -160,11 +167,15 @@ pub fn pmm_alloc() -> Option<usize> {
 pub fn pmm_dealloc(addr: usize) -> Option<()> {
     let mut mutd = HEAD.lock();
     let head = mutd.next.unwrap();
+    if addr == 0 {
+        return Some(());
+    }
     unsafe {
         let node = (*head.as_ptr()).next.expect("out of memory");
         let created = {
-            ((addr as *mut KTNode)
-                .add(HHDM.get_response().unwrap().offset() as usize / size_of::<KTNode>()))
+            core::ptr::with_exposed_provenance_mut::<u8>(addr)
+                .add(HHDM.get_response().unwrap().offset() as usize)
+                .cast::<KTNode>()
         };
         (*created).next = Some(node);
         mutd.next = Some(NonNull::new(created).unwrap());
@@ -256,7 +267,7 @@ pub struct kmallocmgr {
 }
 impl slab_header {
     fn init(size: usize) -> NonNull<Self> {
-        let data = pmm_alloc().unwrap() as *mut u8;
+        let data = core::ptr::with_exposed_provenance_mut::<u8>(pmm_alloc().unwrap());
         unsafe {
             data.add(HHDM.get_response().unwrap().offset() as usize)
                 .write_bytes(0, 4096);

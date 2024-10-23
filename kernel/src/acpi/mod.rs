@@ -81,7 +81,7 @@ impl KernelApi for KTUACPIAPI {
             (*bro).base = base;
             (*bro).len = len;
         }
-        Ok(Handle::new(bro.addr() as u64))
+        Ok(Handle::new(bro.expose_provenance() as u64))
     }
     unsafe fn io_read(
         &self,

@@ -34,8 +34,7 @@ impl GateDescriptor {
 extern "C" fn exception_handler(registers: u64) {
     let got_registers = unsafe { &*(registers as *mut Registers) };
     println!("--Register Dump---\nCR2={:#x}    RFLAGS={:#x}\n--End Of Register Dump\n\n---Stack Trace---", read_cr2(), got_registers.rflags);
-    let mut base_pointer: *mut usize =
-        core::ptr::with_exposed_provenance_mut::<usize>(got_registers.rip);
+    let mut base_pointer: *mut usize = core::ptr::with_exposed_provenance_mut(got_registers.rip);
     let n = "No Function :(".to_string();
     let g = get_formatted_string_from_rip(base_pointer.expose_provenance())
         .unwrap_or((base_pointer.expose_provenance(), &n));
